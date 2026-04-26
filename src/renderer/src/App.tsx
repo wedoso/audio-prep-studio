@@ -1,5 +1,14 @@
 import { ChangeEvent, useEffect, useRef, useState } from 'react';
-import { Activity, AudioWaveform, FileAudio, FolderOpen, Save, SlidersHorizontal } from 'lucide-react';
+import {
+  Activity,
+  AudioWaveform,
+  CheckCircle2,
+  Circle,
+  FileAudio,
+  FolderOpen,
+  Save,
+  SlidersHorizontal
+} from 'lucide-react';
 import type {
   AudioMetadata,
   DependencyStatus,
@@ -68,6 +77,15 @@ function ErrorBox({ error }: { error: { message: string; details?: string } | nu
   );
 }
 
+function StepPill({ label, done, active }: { label: string; done: boolean; active: boolean }) {
+  return (
+    <div className={`step-pill ${done ? 'done' : ''} ${active ? 'active' : ''}`}>
+      {done ? <CheckCircle2 size={15} /> : <Circle size={15} />}
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function AudioPlayer({
   label,
   src,
@@ -98,6 +116,7 @@ export function App() {
   const [error, setError] = useState<{ message: string; details?: string } | null>(null);
   const originalAudio = useRef<HTMLAudioElement | null>(null);
   const processedAudio = useRef<HTMLAudioElement | null>(null);
+  const processedRef = useRef<ProcessResult | null>(null);
 
   useEffect(() => {
     window.audioApp
@@ -106,10 +125,45 @@ export function App() {
       .catch((caught: Error) => setError({ message: 'Could not check FFmpeg dependencies.', details: caught.message }));
   }, []);
 
+  useEffect(() => {
+    processedRef.current = processed;
+  }, [processed]);
+
+  useEffect(() => {
+    return () => {
+      const current = processedRef.current;
+      if (current?.isPreview) {
+        void window.audioApp.discardPreview(current.outputPath);
+      }
+    };
+  }, []);
+
   const dependenciesReady = Boolean(deps?.ffmpeg && deps?.ffprobe);
   const canAnalyze = dependenciesReady && selected && busy === 'idle';
   const canProcess = canAnalyze && analysis;
   const canExport = dependenciesReady && selected && processed && busy === 'idle';
+  const busyLabel =
+    busy === 'loading-file'
+      ? 'Loading file'
+      : busy === 'analyzing'
+        ? 'Analyzing'
+        : busy === 'processing'
+          ? 'Processing preview'
+          : busy === 'exporting'
+            ? 'Exporting'
+            : 'Ready';
+
+  async function discardCurrentPreview() {
+    if (!processed?.isPreview) return;
+
+    processedAudio.current?.pause();
+
+    try {
+      await window.audioApp.discardPreview(processed.outputPath);
+    } catch (caught) {
+      console.warn('Could not discard preview file.', caught);
+    }
+  }
 
   async function chooseFile() {
     setBusy('loading-file');
@@ -118,6 +172,7 @@ export function App() {
     try {
       const result = await window.audioApp.chooseAudioFile();
       if (result) {
+        await discardCurrentPreview();
         setSelected(result);
         setAnalysis(null);
         setProcessed(null);
@@ -138,6 +193,7 @@ export function App() {
 
     setBusy('analyzing');
     setError(null);
+    await discardCurrentPreview();
     setAnalysis(null);
     setProcessed(null);
     setExportedPath(null);
@@ -164,6 +220,7 @@ export function App() {
 
     setBusy('processing');
     setError(null);
+    await discardCurrentPreview();
     setProcessed(null);
     setExportedPath(null);
 
@@ -202,6 +259,7 @@ export function App() {
 
   function updateNumberSetting(key: 'targetLUFS' | 'truePeak' | 'lra', event: ChangeEvent<HTMLInputElement>) {
     const value = Number(event.target.value);
+    void discardCurrentPreview();
     setSettings((current) => ({ ...current, [key]: value }));
     setAnalysis(null);
     setProcessed(null);
@@ -209,6 +267,7 @@ export function App() {
   }
 
   function updateSampleRate(outputSampleRate: 48000 | 96000) {
+    void discardCurrentPreview();
     setSettings((current) => ({ ...current, outputSampleRate }));
     setProcessed(null);
     setExportedPath(null);
@@ -225,15 +284,25 @@ export function App() {
   return (
     <main className="app-shell">
       <header className="topbar">
-        <div>
+        <div className="title-block">
           <h1>Loudness Matcher</h1>
-          <p>Analyze tracks with FFmpeg loudnorm and export 48 kHz or 96 kHz 24-bit WAV files.</p>
+          <div className="runtime-line">
+            <span>{busyLabel}</span>
+            <span>{deps?.ffmpegVersion ?? 'FFmpeg status pending'}</span>
+          </div>
         </div>
         <div className={dependenciesReady ? 'status ok' : 'status warn'}>
           <Activity size={18} />
           {dependenciesReady ? 'FFmpeg ready' : 'FFmpeg missing'}
         </div>
       </header>
+
+      <section className="workflow-strip">
+        <StepPill label="File" done={Boolean(selected)} active={!selected} />
+        <StepPill label="Analyze" done={Boolean(analysis)} active={Boolean(selected && !analysis)} />
+        <StepPill label="Preview" done={Boolean(processed)} active={Boolean(analysis && !processed)} />
+        <StepPill label="Export" done={Boolean(exportedPath)} active={Boolean(processed && !exportedPath)} />
+      </section>
 
       {!dependenciesReady ? (
         <section className="dependency-panel">
@@ -248,8 +317,11 @@ export function App() {
       <div className="workspace">
         <section className="panel file-panel">
           <div className="panel-heading">
-            <FileAudio size={20} />
-            <h2>Input File</h2>
+            <div className="heading-title">
+              <FileAudio size={20} />
+              <h2>Input File</h2>
+            </div>
+            <span className={selected ? 'panel-badge ready' : 'panel-badge'}>{selected ? 'Loaded' : 'Empty'}</span>
           </div>
           <button className="primary-action" onClick={chooseFile} disabled={busy !== 'idle'}>
             <FolderOpen size={18} />
@@ -272,8 +344,11 @@ export function App() {
 
         <section className="panel">
           <div className="panel-heading">
-            <SlidersHorizontal size={20} />
-            <h2>Output Settings</h2>
+            <div className="heading-title">
+              <SlidersHorizontal size={20} />
+              <h2>Output Settings</h2>
+            </div>
+            <span className="panel-badge ready">24-bit WAV</span>
           </div>
           <div className="segmented">
             <button
@@ -307,8 +382,11 @@ export function App() {
 
         <section className="panel">
           <div className="panel-heading">
-            <AudioWaveform size={20} />
-            <h2>Loudness Analysis</h2>
+            <div className="heading-title">
+              <AudioWaveform size={20} />
+              <h2>Loudness Analysis</h2>
+            </div>
+            <span className={analysis ? 'panel-badge ready' : 'panel-badge'}>{analysis ? 'Measured' : 'Pending'}</span>
           </div>
           <button className="primary-action" onClick={analyze} disabled={!canAnalyze}>
             <Activity size={18} />
@@ -325,8 +403,13 @@ export function App() {
 
         <section className="panel">
           <div className="panel-heading">
-            <Save size={20} />
-            <h2>Process Preview</h2>
+            <div className="heading-title">
+              <Save size={20} />
+              <h2>Process Preview</h2>
+            </div>
+            <span className={exportedPath ? 'panel-badge ready' : processed ? 'panel-badge ready' : 'panel-badge'}>
+              {exportedPath ? 'Exported' : processed ? 'Preview ready' : 'Pending'}
+            </span>
           </div>
           <button className="primary-action" onClick={process} disabled={!canProcess}>
             <AudioWaveform size={18} />
@@ -350,7 +433,13 @@ export function App() {
       </div>
 
       <section className="panel playback-panel">
-        <h2>Playback</h2>
+        <div className="panel-heading">
+          <div className="heading-title">
+            <AudioWaveform size={20} />
+            <h2>Playback</h2>
+          </div>
+          <span className={processed ? 'panel-badge ready' : 'panel-badge'}>{processed ? 'A/B ready' : 'Waiting'}</span>
+        </div>
         <div className="players">
           <AudioPlayer label="Original" src={selected?.fileUrl ?? null} audioRef={originalAudio} onPlay={pauseProcessed} />
           <AudioPlayer label="Processed" src={processed?.outputUrl ?? null} audioRef={processedAudio} onPlay={pauseOriginal} />

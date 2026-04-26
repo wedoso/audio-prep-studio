@@ -266,7 +266,8 @@ export async function processAudio(
   return {
     outputPath,
     outputUrl: toAudioUrl(outputPath),
-    metadata
+    metadata,
+    isPreview: false
   };
 }
 

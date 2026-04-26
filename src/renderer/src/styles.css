@@ -1,6 +1,6 @@
 :root {
-  color: #20242a;
-  background: #f5f7f8;
+  color: #1d252c;
+  background: #eef2f1;
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -15,6 +15,9 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.72), rgba(238, 242, 241, 0) 260px),
+    #eef2f1;
 }
 
 button,
@@ -28,13 +31,13 @@ button {
 
 button:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.5;
 }
 
 .app-shell {
-  width: min(1160px, calc(100vw - 32px));
+  width: min(1220px, calc(100vw - 32px));
   margin: 0 auto;
-  padding: 28px 0;
+  padding: 24px 0 28px;
 }
 
 .topbar {
@@ -42,52 +45,104 @@ button:disabled {
   align-items: flex-start;
   justify-content: space-between;
   gap: 24px;
-  margin-bottom: 20px;
+  padding: 18px 0 14px;
+}
+
+.title-block {
+  min-width: 0;
 }
 
 .topbar h1 {
   margin: 0;
-  font-size: 32px;
+  font-size: 30px;
   line-height: 1.1;
   letter-spacing: 0;
 }
 
-.topbar p {
-  margin: 8px 0 0;
-  color: #5f6974;
-  max-width: 690px;
+.runtime-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 9px;
+  color: #5a6670;
+  font-size: 13px;
+}
+
+.runtime-line span {
+  max-width: min(720px, 70vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-line span + span::before {
+  content: "/";
+  margin-right: 8px;
+  color: #9aa5ad;
+}
+
+.status,
+.panel-badge,
+.step-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid;
+  border-radius: 999px;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 750;
 }
 
 .status {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  min-height: 36px;
+  min-height: 34px;
   padding: 0 12px;
-  border: 1px solid;
-  border-radius: 6px;
-  white-space: nowrap;
-  font-weight: 700;
 }
 
-.status.ok {
-  color: #15593c;
-  background: #e7f5ee;
-  border-color: #b7dfcc;
+.status.ok,
+.panel-badge.ready,
+.step-pill.done {
+  color: #176047;
+  background: #e8f7ef;
+  border-color: #b6e3ce;
 }
 
 .status.warn {
-  color: #8a3d1c;
-  background: #fff0e8;
-  border-color: #f1c4ad;
+  color: #8d431f;
+  background: #fff0e4;
+  border-color: #efc2a7;
+}
+
+.workflow-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin: 4px 0 18px;
+}
+
+.step-pill {
+  min-width: 0;
+  min-height: 36px;
+  justify-content: center;
+  padding: 0 12px;
+  color: #66717b;
+  background: rgba(255, 255, 255, 0.76);
+  border-color: #d6dddf;
+}
+
+.step-pill.active {
+  color: #225c74;
+  background: #e4f4f8;
+  border-color: #a8d9e5;
 }
 
 .dependency-panel,
 .error-box,
 .panel {
-  border: 1px solid #d9dee3;
+  border: 1px solid #d7dee0;
   border-radius: 8px;
-  background: #ffffff;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 14px 34px rgba(37, 47, 54, 0.08);
 }
 
 .dependency-panel {
@@ -102,13 +157,14 @@ button:disabled {
 
 .dependency-panel p {
   margin: 0 0 10px;
+  color: #56616a;
 }
 
 .dependency-panel code {
   display: inline-block;
   padding: 8px 10px;
   border-radius: 6px;
-  background: #edf1f4;
+  background: #edf1f2;
 }
 
 .error-box {
@@ -127,8 +183,9 @@ button:disabled {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(340px, 0.9fr);
   gap: 16px;
+  align-items: stretch;
 }
 
 .panel {
@@ -142,16 +199,37 @@ button:disabled {
 .panel-heading {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 15px;
+}
+
+.heading-title {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
   gap: 10px;
-  margin-bottom: 14px;
+}
+
+.heading-title svg {
+  color: #2a6b77;
+  flex: 0 0 auto;
 }
 
 .panel h2,
 .panel-heading h2 {
   margin: 0;
-  font-size: 18px;
+  font-size: 17px;
   line-height: 1.2;
   letter-spacing: 0;
+}
+
+.panel-badge {
+  min-height: 26px;
+  padding: 0 9px;
+  color: #69747c;
+  background: #f5f7f7;
+  border-color: #dbe2e4;
 }
 
 .primary-action,
@@ -162,44 +240,53 @@ button:disabled {
   gap: 8px;
   min-height: 40px;
   padding: 0 14px;
-  border: 1px solid #244c7a;
-  border-radius: 6px;
-  color: #ffffff;
-  background: #315f93;
-  font-weight: 700;
+  border: 1px solid;
+  border-radius: 7px;
+  font-weight: 760;
+  transition:
+    border-color 140ms ease,
+    background 140ms ease,
+    color 140ms ease,
+    transform 140ms ease;
 }
 
 .primary-action {
+  border-color: #1e6f64;
   color: #ffffff;
-  background: #315f93;
+  background: #248173;
 }
 
 .primary-action:hover:not(:disabled) {
-  background: #244c7a;
+  background: #1e6f64;
+  transform: translateY(-1px);
 }
 
 .secondary-action {
   margin-top: 14px;
-  border-color: #87939f;
+  border-color: #b8c4c8;
   color: #26313d;
   background: #ffffff;
 }
 
 .secondary-action:hover:not(:disabled) {
-  border-color: #315f93;
-  color: #1f4e82;
-  background: #eef4fa;
+  border-color: #2a6b77;
+  color: #225c74;
+  background: #eef8fa;
+  transform: translateY(-1px);
 }
 
 .path-line {
-  min-height: 36px;
+  min-height: 38px;
   margin: 14px 0;
   padding: 9px 10px;
   overflow-wrap: anywhere;
-  border-radius: 6px;
-  background: #f0f3f5;
-  color: #4c5661;
-  font-size: 13px;
+  border: 1px solid #dfe5e7;
+  border-radius: 7px;
+  background: #f7f9f9;
+  color: #53606a;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .metadata-grid {
@@ -215,15 +302,18 @@ button:disabled {
 
 .field {
   min-width: 0;
-  border-bottom: 1px solid #edf0f2;
-  padding-bottom: 8px;
+  min-height: 64px;
+  padding: 10px;
+  border: 1px solid #e0e6e8;
+  border-radius: 7px;
+  background: #fbfcfc;
 }
 
 .field dt {
-  margin: 0 0 3px;
-  color: #687480;
-  font-size: 12px;
-  font-weight: 700;
+  margin: 0 0 5px;
+  color: #6a767f;
+  font-size: 11px;
+  font-weight: 780;
   text-transform: uppercase;
 }
 
@@ -231,29 +321,35 @@ button:disabled {
   margin: 0;
   min-height: 22px;
   overflow-wrap: anywhere;
-  color: #20242a;
+  color: #1d252c;
+  font-size: 14px;
 }
 
 .segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
+  padding: 4px;
+  border: 1px solid #d8e0e2;
+  border-radius: 8px;
+  background: #f4f7f7;
 }
 
 .segmented button {
-  min-height: 42px;
+  min-height: 40px;
   padding: 0 10px;
-  border: 1px solid #c7d0d8;
+  border: 1px solid transparent;
   border-radius: 6px;
-  background: #f8fafb;
-  color: #2f3740;
-  font-weight: 700;
+  background: transparent;
+  color: #3c4852;
+  font-weight: 760;
 }
 
 .segmented button.selected {
-  border-color: #315f93;
-  background: #e5eef8;
-  color: #1f4e82;
+  border-color: #a7d5dc;
+  background: #ffffff;
+  color: #225c74;
+  box-shadow: 0 6px 16px rgba(42, 107, 119, 0.12);
 }
 
 .number-row {
@@ -266,60 +362,77 @@ button:disabled {
 .number-row label {
   display: grid;
   gap: 6px;
-  color: #5f6974;
-  font-size: 12px;
-  font-weight: 700;
+  color: #61707a;
+  font-size: 11px;
+  font-weight: 780;
   text-transform: uppercase;
 }
 
 .number-row input {
   width: 100%;
-  min-height: 36px;
-  border: 1px solid #c7d0d8;
-  border-radius: 6px;
-  padding: 0 9px;
-  color: #20242a;
+  min-height: 38px;
+  border: 1px solid #cdd8dc;
+  border-radius: 7px;
+  padding: 0 10px;
+  color: #1d252c;
+  background: #ffffff;
+}
+
+.number-row input:focus {
+  outline: 2px solid #a7d5dc;
+  outline-offset: 1px;
+  border-color: #2a6b77;
 }
 
 .playback-panel {
   margin-top: 16px;
+  background: #fdfefe;
 }
 
 .players {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
-  margin-top: 14px;
 }
 
 .player {
   min-width: 0;
+  padding: 14px;
+  border: 1px solid #dfe6e8;
+  border-radius: 8px;
+  background: #f7f9f9;
 }
 
 .player-label {
-  margin-bottom: 8px;
-  color: #4c5661;
-  font-weight: 700;
+  margin-bottom: 10px;
+  color: #3d4a53;
+  font-weight: 780;
 }
 
 audio {
   width: 100%;
+  min-height: 38px;
 }
 
 @media (max-width: 860px) {
   .app-shell {
     width: min(100vw - 20px, 760px);
-    padding: 18px 0;
+    padding: 16px 0 20px;
   }
 
   .topbar,
   .workspace,
-  .players {
+  .players,
+  .workflow-strip {
     grid-template-columns: 1fr;
   }
 
   .topbar {
     display: grid;
+  }
+
+  .runtime-line span {
+    max-width: calc(100vw - 40px);
   }
 
   .file-panel {

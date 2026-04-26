@@ -72,13 +72,39 @@ function registerAudioProtocol(): void {
   });
 }
 
-async function createPreviewOutputPath(inputPath: string, sampleRate: 48000 | 96000): Promise<string> {
+async function getPreviewTempDir(): Promise<string> {
   const tempDir = path.join(app.getPath('temp'), 'music-fake-eq');
   await mkdir(tempDir, { recursive: true });
+  return tempDir;
+}
+
+async function createPreviewOutputPath(inputPath: string, sampleRate: 48000 | 96000): Promise<string> {
+  const tempDir = await getPreviewTempDir();
 
   const suffix = sampleRate === 48000 ? '48k24' : '96k24';
   const sourceName = path.parse(inputPath).name.replace(/[^\w.-]+/g, '_');
   return path.join(tempDir, `${sourceName}_matched_${suffix}_${Date.now()}.wav`);
+}
+
+async function discardPreviewFile(filePath: string): Promise<void> {
+  validateAudioPath(filePath);
+
+  const tempDir = await getPreviewTempDir();
+  const relativePath = path.relative(tempDir, filePath);
+  const isInTempDir = relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+
+  if (!isInTempDir) {
+    throw new AppError('Refusing to delete a file outside the preview temp folder.', filePath);
+  }
+
+  try {
+    await unlink(filePath);
+  } catch (error) {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : null;
+    if (code !== 'ENOENT') {
+      throw error;
+    }
+  }
 }
 
 async function createWindow(): Promise<void> {
@@ -150,9 +176,18 @@ handleIpc(
     }
   ) => {
     const previewPath = await createPreviewOutputPath(payload.filePath, payload.settings.outputSampleRate);
-    return processAudio(payload.filePath, previewPath, payload.settings, payload.analysis);
+    const result = await processAudio(payload.filePath, previewPath, payload.settings, payload.analysis);
+    return {
+      ...result,
+      isPreview: true
+    };
   }
 );
+
+handleIpc('audio:discard-preview', async (payload: { sourcePath: string }) => {
+  await discardPreviewFile(payload.sourcePath);
+  return null;
+});
 
 handleIpc(
   'audio:export',
@@ -180,7 +215,7 @@ handleIpc(
     await copyFile(payload.sourcePath, saveResult.filePath);
 
     try {
-      await unlink(payload.sourcePath);
+      await discardPreviewFile(payload.sourcePath);
     } catch (error) {
       console.warn(`Could not remove preview file ${payload.sourcePath}: ${String(error)}`);
     }
@@ -188,7 +223,8 @@ handleIpc(
     return {
       outputPath: saveResult.filePath,
       outputUrl: toAudioUrl(saveResult.filePath),
-      metadata: await readMetadata(saveResult.filePath)
+      metadata: await readMetadata(saveResult.filePath),
+      isPreview: false
     };
   }
 );

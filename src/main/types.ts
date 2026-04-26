@@ -31,6 +31,7 @@ export type ProcessResult = {
   outputPath: string;
   outputUrl: string;
   metadata: AudioMetadata;
+  isPreview: boolean;
 };
 
 export type ExportResult = ProcessResult;
