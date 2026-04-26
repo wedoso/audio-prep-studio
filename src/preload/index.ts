@@ -31,7 +31,10 @@ const api = {
   chooseAudioFile: (): Promise<SelectedFile | null> => invoke('file:choose'),
   analyzeLoudness: (
     filePath: string,
-    settings: Pick<ProcessingSettings, 'targetLUFS' | 'truePeak' | 'lra'>
+    settings: Pick<
+      ProcessingSettings,
+      'targetLUFS' | 'truePeak' | 'lra' | 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'
+    >
   ): Promise<LoudnessAnalysisResult> => invoke('audio:analyze', { filePath, settings }),
   processAudio: (
     filePath: string,

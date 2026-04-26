@@ -1,6 +1,6 @@
-# Loudness Matcher
+# Audio Prep Studio
 
-Electron + React + TypeScript desktop app for inspecting WAV/MP3 files, running FFmpeg `loudnorm` analysis, previewing loudness-matched output, and exporting approved 24-bit WAV files at 48 kHz or 96 kHz.
+Electron + React + TypeScript desktop app for preparing WAV/MP3 files for delivery. It inspects source metadata, optionally applies light cleanup, analyzes loudness with FFmpeg `loudnorm`, creates an A/B preview, and exports approved 24-bit WAV files at 48 kHz or 96 kHz.
 
 ## Requirements
 
@@ -34,8 +34,27 @@ npm run build
 - WAV/MP3 file picker with validation
 - Metadata inspection through `ffprobe`
 - FFmpeg dependency check at startup
+- Optional light denoise using an 80 Hz high-pass filter
+- Optional de-esser with light, medium, and aggressive presets
+- Editable loudness target controls for LUFS, true peak, and LRA
 - First-pass `loudnorm` analysis with JSON parsing
-- Second-pass loudness normalization to a temporary preview WAV
-- Original and processed preview audio playback
+- Hover tooltips for audio terminology and processing controls
+- Second-pass processing to a temporary 24-bit WAV preview
+- Clear playback tags for original, preview, and exported audio
+- Synced A/B playback positions for easier comparison
+- Seekable local playback through an Electron audio protocol with byte-range support
+- Final export format selection after preview approval
 - 48 kHz / 24-bit WAV and 96 kHz / 24-bit WAV export after preview approval
 - Save dialog with overwrite confirmation for approved exports
+- Automatic cleanup of temporary preview WAV files on replacement, export, startup, and app quit
+
+## Workflow
+
+1. Choose a local `.wav` or `.mp3` file.
+2. Review detected metadata such as codec, sample rate, channels, bit depth, and duration.
+3. Optionally enable light denoise and/or de-esser processing.
+4. Set loudness targets, then run analysis.
+5. Create a processed preview WAV.
+6. Compare original and processed playback from synced positions.
+7. Choose the final export preset: `48 kHz / 24-bit WAV` or `96 kHz / 24-bit WAV`.
+8. Export the approved file to local disk.

@@ -178,11 +178,16 @@ function validateAnalysis(result: Record<string, unknown>): LoudnessAnalysisResu
 
 export async function analyzeLoudness(
   filePath: string,
-  settings: Pick<ProcessingSettings, 'targetLUFS' | 'truePeak' | 'lra'>
+  settings: Pick<
+    ProcessingSettings,
+    'targetLUFS' | 'truePeak' | 'lra' | 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'
+  >
 ): Promise<LoudnessAnalysisResult> {
   validateAudioPath(filePath);
 
-  const filter = `loudnorm=I=${settings.targetLUFS}:TP=${settings.truePeak}:LRA=${settings.lra}:print_format=json`;
+  const filter = buildFilterChain(settings, {
+    includeLoudnormPrint: true
+  });
   const args = ['-hide_banner', '-i', filePath, '-af', filter, '-f', 'null', '-'];
 
   try {
@@ -196,7 +201,43 @@ export async function analyzeLoudness(
   }
 }
 
-function buildLoudnormFilter(settings: ProcessingSettings, analysis: LoudnessAnalysisResult): string {
+function buildPreprocessingFilters(settings: Pick<ProcessingSettings, 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'>): string[] {
+  const filters: string[] = [];
+
+  if (settings.denoiseEnabled) {
+    filters.push('highpass=f=80');
+  }
+
+  if (settings.deEsserEnabled) {
+    const presets = {
+      light: [
+        'equalizer=f=6200:t=q:w=2.2:g=-2',
+        'equalizer=f=9000:t=q:w=2.5:g=-1'
+      ],
+      medium: [
+        'equalizer=f=6200:t=q:w=2.2:g=-3',
+        'equalizer=f=9000:t=q:w=2.5:g=-2'
+      ],
+      aggressive: [
+        'equalizer=f=6200:t=q:w=2.2:g=-4.5',
+        'equalizer=f=9000:t=q:w=2.5:g=-3'
+      ]
+    };
+
+    filters.push(...presets[settings.deEsserPreset]);
+  }
+
+  return filters;
+}
+
+function buildAnalysisLoudnormFilter(settings: Pick<ProcessingSettings, 'targetLUFS' | 'truePeak' | 'lra'>): string {
+  return `loudnorm=I=${settings.targetLUFS}:TP=${settings.truePeak}:LRA=${settings.lra}:print_format=json`;
+}
+
+function buildSecondPassLoudnormFilter(
+  settings: Pick<ProcessingSettings, 'targetLUFS' | 'truePeak' | 'lra'>,
+  analysis: LoudnessAnalysisResult
+): string {
   return [
     `loudnorm=I=${settings.targetLUFS}`,
     `TP=${settings.truePeak}`,
@@ -208,6 +249,29 @@ function buildLoudnormFilter(settings: ProcessingSettings, analysis: LoudnessAna
     `offset=${analysis.target_offset}`,
     'linear=true'
   ].join(':');
+}
+
+function buildFilterChain(
+  settings: Pick<
+    ProcessingSettings,
+    'targetLUFS' | 'truePeak' | 'lra' | 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'
+  >,
+  options:
+    | {
+        includeLoudnormPrint: true;
+      }
+    | {
+        includeLoudnormPrint: false;
+        analysis: LoudnessAnalysisResult;
+      }
+): string {
+  const filters = buildPreprocessingFilters(settings);
+  filters.push(
+    options.includeLoudnormPrint
+      ? buildAnalysisLoudnormFilter(settings)
+      : buildSecondPassLoudnormFilter(settings, options.analysis)
+  );
+  return filters.join(',');
 }
 
 export function defaultOutputPath(inputPath: string, sampleRate: 48000 | 96000): string {
@@ -224,7 +288,10 @@ export async function processAudio(
 ): Promise<ProcessResult> {
   validateAudioPath(filePath);
 
-  const filter = buildLoudnormFilter(settings, analysis);
+  const filter = buildFilterChain(settings, {
+    includeLoudnormPrint: false,
+    analysis
+  });
   const args = [
     '-hide_banner',
     '-y',
@@ -232,8 +299,6 @@ export async function processAudio(
     filePath,
     '-af',
     filter,
-    '-ar',
-    String(settings.outputSampleRate),
     '-c:a',
     'pcm_s24le',
     outputPath
@@ -254,10 +319,59 @@ export async function processAudio(
   }
 
   const metadata = await readMetadata(outputPath);
-  if (metadata.codecName !== 'pcm_s24le' || metadata.sampleRate !== settings.outputSampleRate) {
+  if (metadata.codecName !== 'pcm_s24le') {
     throw new AppError(
-      'Processed output did not match the requested WAV settings.',
-      `Expected pcm_s24le at ${settings.outputSampleRate} Hz, got ${metadata.codecName ?? 'unknown'} at ${
+      'Processed preview did not match the expected WAV settings.',
+      `Expected pcm_s24le, got ${metadata.codecName ?? 'unknown'}.`
+    );
+  }
+
+  return {
+    outputPath,
+    outputUrl: toAudioUrl(outputPath),
+    metadata,
+    isPreview: false
+  };
+}
+
+export async function exportAudioFile(
+  sourcePath: string,
+  outputPath: string,
+  sampleRate: 48000 | 96000
+): Promise<ProcessResult> {
+  validateAudioPath(sourcePath);
+
+  const args = [
+    '-hide_banner',
+    '-y',
+    '-i',
+    sourcePath,
+    '-ar',
+    String(sampleRate),
+    '-c:a',
+    'pcm_s24le',
+    outputPath
+  ];
+
+  try {
+    await runCommand('ffmpeg', args);
+  } catch (error) {
+    if (error instanceof AppError) {
+      throw new AppError('Export conversion failed.', error.details);
+    }
+    throw error;
+  }
+
+  const outputStats = await stat(outputPath);
+  if (outputStats.size <= 0) {
+    throw new AppError('Exported output was created but appears to be empty.');
+  }
+
+  const metadata = await readMetadata(outputPath);
+  if (metadata.codecName !== 'pcm_s24le' || metadata.sampleRate !== sampleRate) {
+    throw new AppError(
+      'Exported output did not match the requested WAV settings.',
+      `Expected pcm_s24le at ${sampleRate} Hz, got ${metadata.codecName ?? 'unknown'} at ${
         metadata.sampleRate ?? 'unknown'
       } Hz.`
     );

@@ -6,6 +6,7 @@ import {
   Circle,
   FileAudio,
   FolderOpen,
+  Info,
   Save,
   SlidersHorizontal
 } from 'lucide-react';
@@ -27,8 +28,11 @@ type BusyState = 'idle' | 'loading-file' | 'analyzing' | 'processing' | 'exporti
 const DEFAULT_SETTINGS: ProcessingSettings = {
   targetLUFS: -14,
   truePeak: -1,
-  lra: 11,
-  outputSampleRate: 48000
+  lra: 7,
+  outputSampleRate: 48000,
+  denoiseEnabled: false,
+  deEsserEnabled: false,
+  deEsserPreset: 'light'
 };
 
 function formatDuration(seconds: number | null): string {
@@ -57,10 +61,28 @@ function formatBitRate(value: number | null): string {
   return `${Math.round(value / 1000)} kbps`;
 }
 
-function Field({ label, value }: { label: string; value: string | number | null }) {
+function Help({ text }: { text: string }) {
+  return (
+    <span className="tooltip" tabIndex={0} aria-label={text}>
+      <Info size={13} />
+      <span className="tooltip-content">{text}</span>
+    </span>
+  );
+}
+
+function TermLabel({ children, help }: { children: string; help: string }) {
+  return (
+    <span className="term-label">
+      {children}
+      <Help text={help} />
+    </span>
+  );
+}
+
+function Field({ label, value, help }: { label: string; value: string | number | null; help?: string }) {
   return (
     <div className="field">
-      <dt>{label}</dt>
+      <dt>{help ? <TermLabel help={help}>{label}</TermLabel> : label}</dt>
       <dd>{value ?? 'N/A'}</dd>
     </div>
   );
@@ -88,19 +110,40 @@ function StepPill({ label, done, active }: { label: string; done: boolean; activ
 
 function AudioPlayer({
   label,
+  tag,
+  detail,
   src,
   audioRef,
-  onPlay
+  onPlay,
+  onSeek,
+  onTimeUpdate
 }: {
   label: string;
+  tag: string;
+  detail: string;
   src: string | null;
   audioRef: React.RefObject<HTMLAudioElement | null>;
-  onPlay: () => void;
+  onPlay: (audio: HTMLAudioElement) => void;
+  onSeek: (audio: HTMLAudioElement) => void;
+  onTimeUpdate: (audio: HTMLAudioElement) => void;
 }) {
   return (
     <div className="player">
-      <div className="player-label">{label}</div>
-      <audio ref={audioRef} src={src ?? undefined} controls onPlay={onPlay} />
+      <div className="player-header">
+        <div>
+          <div className="player-label">{label}</div>
+          <div className="player-detail">{detail}</div>
+        </div>
+        <span className={src ? 'playback-tag ready' : 'playback-tag'}>{tag}</span>
+      </div>
+      <audio
+        ref={audioRef}
+        src={src ?? undefined}
+        controls
+        onPlay={(event) => onPlay(event.currentTarget)}
+        onSeeked={(event) => onSeek(event.currentTarget)}
+        onTimeUpdate={(event) => onTimeUpdate(event.currentTarget)}
+      />
     </div>
   );
 }
@@ -117,6 +160,7 @@ export function App() {
   const originalAudio = useRef<HTMLAudioElement | null>(null);
   const processedAudio = useRef<HTMLAudioElement | null>(null);
   const processedRef = useRef<ProcessResult | null>(null);
+  const syncingAudio = useRef(false);
 
   useEffect(() => {
     window.audioApp
@@ -141,7 +185,7 @@ export function App() {
   const dependenciesReady = Boolean(deps?.ffmpeg && deps?.ffprobe);
   const canAnalyze = dependenciesReady && selected && busy === 'idle';
   const canProcess = canAnalyze && analysis;
-  const canExport = dependenciesReady && selected && processed && busy === 'idle';
+  const canExport = dependenciesReady && selected && processed?.isPreview && busy === 'idle';
   const busyLabel =
     busy === 'loading-file'
       ? 'Loading file'
@@ -152,6 +196,12 @@ export function App() {
           : busy === 'exporting'
             ? 'Exporting'
             : 'Ready';
+  const processedPlaybackTag = exportedPath ? 'Exported WAV' : processed?.isPreview ? 'Preview result' : 'No result';
+  const processedPlaybackDetail = exportedPath
+    ? `${settings.outputSampleRate / 1000} kHz / 24-bit export`
+    : processed?.isPreview
+      ? 'Temporary processed preview'
+      : 'Create a preview to compare';
 
   async function discardCurrentPreview() {
     if (!processed?.isPreview) return;
@@ -202,7 +252,10 @@ export function App() {
       const result = await window.audioApp.analyzeLoudness(selected.metadata.filePath, {
         targetLUFS: settings.targetLUFS,
         truePeak: settings.truePeak,
-        lra: settings.lra
+        lra: settings.lra,
+        denoiseEnabled: settings.denoiseEnabled,
+        deEsserEnabled: settings.deEsserEnabled,
+        deEsserPreset: settings.deEsserPreset
       });
       setAnalysis(result);
     } catch (caught) {
@@ -267,18 +320,68 @@ export function App() {
   }
 
   function updateSampleRate(outputSampleRate: 48000 | 96000) {
-    void discardCurrentPreview();
     setSettings((current) => ({ ...current, outputSampleRate }));
+    setExportedPath(null);
+  }
+
+  function updateProcessingSetting(
+    patch: Partial<Pick<ProcessingSettings, 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'>>
+  ) {
+    void discardCurrentPreview();
+    setSettings((current) => ({ ...current, ...patch }));
+    setAnalysis(null);
     setProcessed(null);
     setExportedPath(null);
   }
 
-  function pauseProcessed() {
+  function syncAudioPosition(source: HTMLAudioElement, target: HTMLAudioElement | null) {
+    if (!target || !source.src || !target.src || syncingAudio.current) return;
+    if (!Number.isFinite(source.currentTime)) return;
+
+    const targetDuration = Number.isFinite(target.duration) ? target.duration : source.currentTime;
+    const nextTime = Math.max(0, Math.min(source.currentTime, targetDuration));
+
+    if (Math.abs(target.currentTime - nextTime) < 0.2) return;
+
+    syncingAudio.current = true;
+    try {
+      target.currentTime = nextTime;
+    } catch (caught) {
+      console.warn('Could not sync playback position.', caught);
+    }
+    window.setTimeout(() => {
+      syncingAudio.current = false;
+    }, 0);
+  }
+
+  function handleOriginalPlay(audio: HTMLAudioElement) {
+    syncAudioPosition(audio, processedAudio.current);
     processedAudio.current?.pause();
   }
 
-  function pauseOriginal() {
+  function handleProcessedPlay(audio: HTMLAudioElement) {
+    syncAudioPosition(audio, originalAudio.current);
     originalAudio.current?.pause();
+  }
+
+  function handleOriginalSeek(audio: HTMLAudioElement) {
+    syncAudioPosition(audio, processedAudio.current);
+  }
+
+  function handleProcessedSeek(audio: HTMLAudioElement) {
+    syncAudioPosition(audio, originalAudio.current);
+  }
+
+  function handleOriginalTimeUpdate(audio: HTMLAudioElement) {
+    if (!audio.paused) {
+      syncAudioPosition(audio, processedAudio.current);
+    }
+  }
+
+  function handleProcessedTimeUpdate(audio: HTMLAudioElement) {
+    if (!audio.paused) {
+      syncAudioPosition(audio, originalAudio.current);
+    }
   }
 
   return (
@@ -299,7 +402,11 @@ export function App() {
 
       <section className="workflow-strip">
         <StepPill label="File" done={Boolean(selected)} active={!selected} />
-        <StepPill label="Analyze" done={Boolean(analysis)} active={Boolean(selected && !analysis)} />
+        <StepPill
+          label="Add-ons"
+          done={Boolean(selected)}
+          active={Boolean(selected && !analysis && (settings.denoiseEnabled || settings.deEsserEnabled))}
+        />
         <StepPill label="Preview" done={Boolean(processed)} active={Boolean(analysis && !processed)} />
         <StepPill label="Export" done={Boolean(exportedPath)} active={Boolean(processed && !exportedPath)} />
       </section>
@@ -332,12 +439,12 @@ export function App() {
           <dl className="metadata-grid">
             <Field label="File name" value={selected?.metadata.fileName ?? null} />
             <Field label="Duration" value={selected ? formatDuration(selected.metadata.durationSeconds) : null} />
-            <Field label="Codec" value={selected?.metadata.codecName ?? null} />
-            <Field label="Sample rate" value={selected?.metadata.sampleRate ? `${selected.metadata.sampleRate} Hz` : null} />
-            <Field label="Channels" value={selected?.metadata.channels ?? null} />
-            <Field label="Layout" value={selected?.metadata.channelLayout ?? null} />
-            <Field label="Bit depth" value={selected?.metadata.bitsPerSample ? `${selected.metadata.bitsPerSample}-bit` : null} />
-            <Field label="Bit rate" value={selected ? formatBitRate(selected.metadata.bitRate) : null} />
+            <Field label="Codec" value={selected?.metadata.codecName ?? null} help="The encoding format used by the input file, such as PCM WAV or MP3." />
+            <Field label="Sample rate" value={selected?.metadata.sampleRate ? `${selected.metadata.sampleRate} Hz` : null} help="How many audio samples exist per second. Higher values can preserve more high-frequency detail but create larger files." />
+            <Field label="Channels" value={selected?.metadata.channels ?? null} help="The number of audio channels, for example 1 for mono or 2 for stereo." />
+            <Field label="Layout" value={selected?.metadata.channelLayout ?? null} help="The speaker arrangement reported by FFprobe, such as stereo." />
+            <Field label="Bit depth" value={selected?.metadata.bitsPerSample ? `${selected.metadata.bitsPerSample}-bit` : null} help="How much resolution each sample has. Higher bit depth gives more headroom for processing." />
+            <Field label="Bit rate" value={selected ? formatBitRate(selected.metadata.bitRate) : null} help="Approximate data rate of the audio stream. It affects file size and, for compressed formats, quality." />
             <Field label="File size" value={selected ? formatBytes(selected.metadata.fileSizeBytes) : null} />
           </dl>
         </section>
@@ -346,36 +453,82 @@ export function App() {
           <div className="panel-heading">
             <div className="heading-title">
               <SlidersHorizontal size={20} />
-              <h2>Output Settings</h2>
+              <h2>Loudness Target</h2>
             </div>
-            <span className="panel-badge ready">24-bit WAV</span>
-          </div>
-          <div className="segmented">
-            <button
-              className={settings.outputSampleRate === 48000 ? 'selected' : ''}
-              onClick={() => updateSampleRate(48000)}
-            >
-              48 kHz / 24-bit WAV
-            </button>
-            <button
-              className={settings.outputSampleRate === 96000 ? 'selected' : ''}
-              onClick={() => updateSampleRate(96000)}
-            >
-              96 kHz / 24-bit WAV
-            </button>
+            <span className="panel-badge ready">Editable</span>
           </div>
           <div className="number-row">
             <label>
-              Target LUFS
+              <TermLabel help="Integrated loudness target. More negative values sound quieter; less negative values sound louder. -14 LUFS is a common streaming target.">Target LUFS</TermLabel>
               <input type="number" step="0.1" value={settings.targetLUFS} onChange={(event) => updateNumberSetting('targetLUFS', event)} />
             </label>
             <label>
-              True Peak
+              <TermLabel help="Maximum allowed peak after processing. Keeping this below 0 dB helps avoid clipping during playback or conversion.">True Peak</TermLabel>
               <input type="number" step="0.1" value={settings.truePeak} onChange={(event) => updateNumberSetting('truePeak', event)} />
             </label>
             <label>
-              LRA
+              <TermLabel help="Loudness range target. Lower values compress perceived dynamics; higher values preserve more contrast between quiet and loud sections.">LRA</TermLabel>
               <input type="number" step="0.1" value={settings.lra} onChange={(event) => updateNumberSetting('lra', event)} />
+            </label>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-heading">
+            <div className="heading-title">
+              <SlidersHorizontal size={20} />
+              <h2>Audio Processing</h2>
+            </div>
+            <span className={settings.denoiseEnabled || settings.deEsserEnabled ? 'panel-badge ready' : 'panel-badge'}>
+              {settings.denoiseEnabled || settings.deEsserEnabled ? 'Enabled' : 'Bypassed'}
+            </span>
+          </div>
+          <div className="toggle-stack">
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={settings.denoiseEnabled}
+                onChange={(event) => updateProcessingSetting({ denoiseEnabled: event.target.checked })}
+              />
+              <span>
+                <strong>
+                  Light denoise
+                  <Help text="Applies an 80 Hz high-pass filter. It reduces low rumble and electrical hum, but too much low-cut can thin out bass-heavy material." />
+                </strong>
+                <small>High-pass filter at 80 Hz</small>
+              </span>
+            </label>
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={settings.deEsserEnabled}
+                onChange={(event) => updateProcessingSetting({ deEsserEnabled: event.target.checked })}
+              />
+              <span>
+                <strong>
+                  De-esser
+                  <Help text="Reduces sharp sibilance and hiss in the upper frequencies. Stronger settings can make vocals less harsh, but too much can dull the track." />
+                </strong>
+                <small>Reduces harsh sibilance around 6.2 kHz and 9 kHz</small>
+              </span>
+            </label>
+          </div>
+          <div className="preset-row">
+            <label>
+              <TermLabel help="Controls how much high-frequency reduction is applied by the de-esser. Start with Light and increase only if the preview still sounds harsh.">De-esser preset</TermLabel>
+              <select
+                value={settings.deEsserPreset}
+                disabled={!settings.deEsserEnabled}
+                onChange={(event) =>
+                  updateProcessingSetting({
+                    deEsserPreset: event.target.value as ProcessingSettings['deEsserPreset']
+                  })
+                }
+              >
+                <option value="light">Light</option>
+                <option value="medium">Medium</option>
+                <option value="aggressive">Aggressive</option>
+              </select>
             </label>
           </div>
         </section>
@@ -393,11 +546,11 @@ export function App() {
             {busy === 'analyzing' ? 'Analyzing...' : 'Analyze Loudness'}
           </button>
           <dl className="metadata-grid compact">
-            <Field label="Input Integrated LUFS" value={analysis?.input_i ?? null} />
-            <Field label="Input True Peak" value={analysis?.input_tp ?? null} />
-            <Field label="Input LRA" value={analysis?.input_lra ?? null} />
-            <Field label="Input Threshold" value={analysis?.input_thresh ?? null} />
-            <Field label="Target Offset" value={analysis?.target_offset ?? null} />
+            <Field label="Input Integrated LUFS" value={analysis?.input_i ?? null} help="The measured average loudness of the analyzed audio after optional add-on processing." />
+            <Field label="Input True Peak" value={analysis?.input_tp ?? null} help="The highest estimated playback peak in the analyzed audio. Values above 0 can clip." />
+            <Field label="Input LRA" value={analysis?.input_lra ?? null} help="Measured loudness range, showing how much loudness variation exists across the track." />
+            <Field label="Input Threshold" value={analysis?.input_thresh ?? null} help="The gating threshold FFmpeg used while measuring loudness." />
+            <Field label="Target Offset" value={analysis?.target_offset ?? null} help="The gain offset FFmpeg calculates to hit the target loudness." />
           </dl>
         </section>
 
@@ -419,11 +572,43 @@ export function App() {
           {processed ? (
             <dl className="metadata-grid compact">
               <Field label="Output codec" value={processed.metadata.codecName} />
-              <Field label="Output sample rate" value={processed.metadata.sampleRate ? `${processed.metadata.sampleRate} Hz` : null} />
-              <Field label="Output bit depth" value={processed.metadata.bitsPerSample ? `${processed.metadata.bitsPerSample}-bit` : null} />
+              <Field label="Preview sample rate" value={processed.metadata.sampleRate ? `${processed.metadata.sampleRate} Hz` : null} help="The temporary preview keeps the processed sound for listening. Final sample rate is selected during export." />
+              <Field label="Preview bit depth" value={processed.metadata.bitsPerSample ? `${processed.metadata.bitsPerSample}-bit` : null} help="The preview is rendered as 24-bit WAV for clean listening before export." />
               <Field label="Output size" value={formatBytes(processed.metadata.fileSizeBytes)} />
             </dl>
           ) : null}
+        </section>
+
+        <section className="panel">
+          <div className="panel-heading">
+            <div className="heading-title">
+              <Save size={20} />
+              <h2>Export Format</h2>
+            </div>
+            <span className={exportedPath ? 'panel-badge ready' : processed ? 'panel-badge ready' : 'panel-badge'}>
+              {exportedPath ? 'Saved' : processed ? 'Ready' : 'Waiting'}
+            </span>
+          </div>
+          <div className="segmented">
+            <button
+              className={settings.outputSampleRate === 48000 ? 'selected' : ''}
+              onClick={() => updateSampleRate(48000)}
+              title="48 kHz is the standard choice for video, streaming workflows, and smaller final WAV files."
+            >
+              48 kHz / 24-bit WAV
+            </button>
+            <button
+              className={settings.outputSampleRate === 96000 ? 'selected' : ''}
+              onClick={() => updateSampleRate(96000)}
+              title="96 kHz creates a larger high-resolution WAV. Use it when a hi-res delivery format is required."
+            >
+              96 kHz / 24-bit WAV
+            </button>
+          </div>
+          <div className="format-note">
+            <TermLabel help="The sample rate controls how many samples per second the exported WAV contains. Bit depth stays fixed at 24-bit for delivery headroom.">Preset output</TermLabel>
+            <span>{settings.outputSampleRate / 1000} kHz / 24-bit PCM WAV</span>
+          </div>
           <button className="secondary-action" onClick={exportProcessed} disabled={!canExport}>
             <Save size={18} />
             {busy === 'exporting' ? 'Exporting...' : 'Export Approved WAV'}
@@ -441,8 +626,26 @@ export function App() {
           <span className={processed ? 'panel-badge ready' : 'panel-badge'}>{processed ? 'A/B ready' : 'Waiting'}</span>
         </div>
         <div className="players">
-          <AudioPlayer label="Original" src={selected?.fileUrl ?? null} audioRef={originalAudio} onPlay={pauseProcessed} />
-          <AudioPlayer label="Processed" src={processed?.outputUrl ?? null} audioRef={processedAudio} onPlay={pauseOriginal} />
+          <AudioPlayer
+            label="Original"
+            tag={selected ? 'Input file' : 'No input'}
+            detail={selected?.metadata.fileName ?? 'Choose an audio file'}
+            src={selected?.fileUrl ?? null}
+            audioRef={originalAudio}
+            onPlay={handleOriginalPlay}
+            onSeek={handleOriginalSeek}
+            onTimeUpdate={handleOriginalTimeUpdate}
+          />
+          <AudioPlayer
+            label="Processed"
+            tag={processedPlaybackTag}
+            detail={processedPlaybackDetail}
+            src={processed?.outputUrl ?? null}
+            audioRef={processedAudio}
+            onPlay={handleProcessedPlay}
+            onSeek={handleProcessedSeek}
+            onTimeUpdate={handleProcessedTimeUpdate}
+          />
         </div>
       </section>
     </main>

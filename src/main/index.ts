@@ -1,12 +1,15 @@
-import { copyFile, mkdir, unlink } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { mkdir, readdir, stat, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { Readable } from 'node:stream';
+import { fileURLToPath } from 'node:url';
 import electron from 'electron/main';
 import {
   analyzeLoudness,
   AppError,
   checkDependencies,
   defaultOutputPath,
+  exportAudioFile,
   processAudio,
   readMetadata,
   toAudioUrl,
@@ -15,7 +18,7 @@ import {
 import type { AppErrorPayload, LoudnessAnalysisResult, ProcessingSettings } from './types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const { app, BrowserWindow, dialog, ipcMain, net, protocol } = electron;
+const { app, BrowserWindow, dialog, ipcMain, protocol } = electron;
 
 protocol.registerSchemesAsPrivileged([
   {
@@ -56,6 +59,58 @@ function handleIpc<TArgs extends unknown[], TResult>(
   });
 }
 
+function audioContentType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === '.mp3') return 'audio/mpeg';
+  return 'audio/wav';
+}
+
+async function createAudioResponse(request: Request, filePath: string): Promise<Response> {
+  const fileStats = await stat(filePath);
+  const fileSize = fileStats.size;
+  const range = request.headers.get('range');
+  const baseHeaders = {
+    'Accept-Ranges': 'bytes',
+    'Content-Type': audioContentType(filePath)
+  };
+
+  if (range) {
+    const match = /^bytes=(\d*)-(\d*)$/.exec(range);
+    if (!match) {
+      return new Response(null, {
+        status: 416,
+        headers: {
+          ...baseHeaders,
+          'Content-Range': `bytes */${fileSize}`
+        }
+      });
+    }
+
+    const requestedStart = match[1] ? Number(match[1]) : 0;
+    const requestedEnd = match[2] ? Number(match[2]) : fileSize - 1;
+    const start = Math.max(0, Math.min(requestedStart, fileSize - 1));
+    const end = Math.max(start, Math.min(requestedEnd, fileSize - 1));
+    const chunkSize = end - start + 1;
+
+    return new Response(Readable.toWeb(createReadStream(filePath, { start, end })) as ReadableStream, {
+      status: 206,
+      headers: {
+        ...baseHeaders,
+        'Content-Length': String(chunkSize),
+        'Content-Range': `bytes ${start}-${end}/${fileSize}`
+      }
+    });
+  }
+
+  return new Response(Readable.toWeb(createReadStream(filePath)) as ReadableStream, {
+    status: 200,
+    headers: {
+      ...baseHeaders,
+      'Content-Length': String(fileSize)
+    }
+  });
+}
+
 function registerAudioProtocol(): void {
   protocol.handle('app-audio', async (request) => {
     const url = new URL(request.url);
@@ -68,7 +123,7 @@ function registerAudioProtocol(): void {
     const filePath = Buffer.from(encodedPath, 'base64url').toString('utf8');
     validateAudioPath(filePath);
 
-    return net.fetch(pathToFileURL(filePath).toString());
+    return createAudioResponse(request, filePath);
   });
 }
 
@@ -78,12 +133,11 @@ async function getPreviewTempDir(): Promise<string> {
   return tempDir;
 }
 
-async function createPreviewOutputPath(inputPath: string, sampleRate: 48000 | 96000): Promise<string> {
+async function createPreviewOutputPath(inputPath: string): Promise<string> {
   const tempDir = await getPreviewTempDir();
 
-  const suffix = sampleRate === 48000 ? '48k24' : '96k24';
   const sourceName = path.parse(inputPath).name.replace(/[^\w.-]+/g, '_');
-  return path.join(tempDir, `${sourceName}_matched_${suffix}_${Date.now()}.wav`);
+  return path.join(tempDir, `${sourceName}_preview_${Date.now()}.wav`);
 }
 
 async function discardPreviewFile(filePath: string): Promise<void> {
@@ -105,6 +159,31 @@ async function discardPreviewFile(filePath: string): Promise<void> {
       throw error;
     }
   }
+}
+
+async function cleanupPreviewTempDir(): Promise<void> {
+  const tempDir = await getPreviewTempDir();
+  let entries: string[];
+
+  try {
+    entries = await readdir(tempDir);
+  } catch (error) {
+    console.warn(`Could not read preview temp folder ${tempDir}: ${String(error)}`);
+    return;
+  }
+
+  await Promise.allSettled(
+    entries
+      .filter((entry) => entry.endsWith('.wav'))
+      .map(async (entry) => {
+        const filePath = path.join(tempDir, entry);
+        try {
+          await discardPreviewFile(filePath);
+        } catch (error) {
+          console.warn(`Could not remove preview temp file ${filePath}: ${String(error)}`);
+        }
+      })
+  );
 }
 
 async function createWindow(): Promise<void> {
@@ -162,7 +241,15 @@ handleIpc('file:choose', async () => {
 
 handleIpc(
   'audio:analyze',
-  async (payload: { filePath: string; settings: Pick<ProcessingSettings, 'targetLUFS' | 'truePeak' | 'lra'> }) =>
+  async (
+    payload: {
+      filePath: string;
+      settings: Pick<
+        ProcessingSettings,
+        'targetLUFS' | 'truePeak' | 'lra' | 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'
+      >;
+    }
+  ) =>
     analyzeLoudness(payload.filePath, payload.settings)
 );
 
@@ -175,7 +262,7 @@ handleIpc(
       analysis: LoudnessAnalysisResult;
     }
   ) => {
-    const previewPath = await createPreviewOutputPath(payload.filePath, payload.settings.outputSampleRate);
+    const previewPath = await createPreviewOutputPath(payload.filePath);
     const result = await processAudio(payload.filePath, previewPath, payload.settings, payload.analysis);
     return {
       ...result,
@@ -212,7 +299,7 @@ handleIpc(
       throw new AppError('Export was canceled.');
     }
 
-    await copyFile(payload.sourcePath, saveResult.filePath);
+    const result = await exportAudioFile(payload.sourcePath, saveResult.filePath, payload.settings.outputSampleRate);
 
     try {
       await discardPreviewFile(payload.sourcePath);
@@ -220,18 +307,18 @@ handleIpc(
       console.warn(`Could not remove preview file ${payload.sourcePath}: ${String(error)}`);
     }
 
-    return {
-      outputPath: saveResult.filePath,
-      outputUrl: toAudioUrl(saveResult.filePath),
-      metadata: await readMetadata(saveResult.filePath),
-      isPreview: false
-    };
+    return result;
   }
 );
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await cleanupPreviewTempDir();
   registerAudioProtocol();
   return createWindow();
+});
+
+app.on('before-quit', () => {
+  void cleanupPreviewTempDir();
 });
 
 app.on('window-all-closed', () => {

@@ -25,6 +25,9 @@ export type ProcessingSettings = {
   truePeak: number;
   lra: number;
   outputSampleRate: 48000 | 96000;
+  denoiseEnabled: boolean;
+  deEsserEnabled: boolean;
+  deEsserPreset: "light" | "medium" | "aggressive";
 };
 
 export type ProcessResult = {
