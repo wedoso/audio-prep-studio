@@ -33,6 +33,8 @@ export type ProcessResult = {
   metadata: AudioMetadata;
 };
 
+export type ExportResult = ProcessResult;
+
 export type DependencyStatus = {
   ffmpeg: boolean;
   ffprobe: boolean;

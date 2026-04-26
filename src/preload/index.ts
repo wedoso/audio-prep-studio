@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import type {
   AudioMetadata,
   DependencyStatus,
+  ExportResult,
   LoudnessAnalysisResult,
   ProcessingSettings,
   ProcessResult
@@ -36,7 +37,9 @@ const api = {
     filePath: string,
     settings: ProcessingSettings,
     analysis: LoudnessAnalysisResult
-  ): Promise<ProcessResult> => invoke('audio:process', { filePath, settings, analysis })
+  ): Promise<ProcessResult> => invoke('audio:process', { filePath, settings, analysis }),
+  exportAudio: (sourcePath: string, originalPath: string, settings: ProcessingSettings): Promise<ExportResult> =>
+    invoke('audio:export', { sourcePath, originalPath, settings })
 };
 
 contextBridge.exposeInMainWorld('audioApp', api);

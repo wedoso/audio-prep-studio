@@ -13,7 +13,7 @@ type SelectedAudio = {
   fileUrl: string;
 };
 
-type BusyState = 'idle' | 'loading-file' | 'analyzing' | 'processing';
+type BusyState = 'idle' | 'loading-file' | 'analyzing' | 'processing' | 'exporting';
 
 const DEFAULT_SETTINGS: ProcessingSettings = {
   targetLUFS: -14,
@@ -93,6 +93,7 @@ export function App() {
   const [settings, setSettings] = useState<ProcessingSettings>(DEFAULT_SETTINGS);
   const [analysis, setAnalysis] = useState<LoudnessAnalysisResult | null>(null);
   const [processed, setProcessed] = useState<ProcessResult | null>(null);
+  const [exportedPath, setExportedPath] = useState<string | null>(null);
   const [busy, setBusy] = useState<BusyState>('idle');
   const [error, setError] = useState<{ message: string; details?: string } | null>(null);
   const originalAudio = useRef<HTMLAudioElement | null>(null);
@@ -108,6 +109,7 @@ export function App() {
   const dependenciesReady = Boolean(deps?.ffmpeg && deps?.ffprobe);
   const canAnalyze = dependenciesReady && selected && busy === 'idle';
   const canProcess = canAnalyze && analysis;
+  const canExport = dependenciesReady && selected && processed && busy === 'idle';
 
   async function chooseFile() {
     setBusy('loading-file');
@@ -119,6 +121,7 @@ export function App() {
         setSelected(result);
         setAnalysis(null);
         setProcessed(null);
+        setExportedPath(null);
       }
     } catch (caught) {
       setError({
@@ -136,6 +139,8 @@ export function App() {
     setBusy('analyzing');
     setError(null);
     setAnalysis(null);
+    setProcessed(null);
+    setExportedPath(null);
 
     try {
       const result = await window.audioApp.analyzeLoudness(selected.metadata.filePath, {
@@ -160,6 +165,7 @@ export function App() {
     setBusy('processing');
     setError(null);
     setProcessed(null);
+    setExportedPath(null);
 
     try {
       const result = await window.audioApp.processAudio(selected.metadata.filePath, settings, analysis);
@@ -174,11 +180,38 @@ export function App() {
     }
   }
 
+  async function exportProcessed() {
+    if (!selected || !processed) return;
+
+    setBusy('exporting');
+    setError(null);
+
+    try {
+      const result = await window.audioApp.exportAudio(processed.outputPath, selected.metadata.filePath, settings);
+      setExportedPath(result.outputPath);
+      setProcessed(result);
+    } catch (caught) {
+      setError({
+        message: caught instanceof Error ? caught.message : 'Export failed.',
+        details: caught instanceof Error ? caught.stack : String(caught)
+      });
+    } finally {
+      setBusy('idle');
+    }
+  }
+
   function updateNumberSetting(key: 'targetLUFS' | 'truePeak' | 'lra', event: ChangeEvent<HTMLInputElement>) {
     const value = Number(event.target.value);
     setSettings((current) => ({ ...current, [key]: value }));
     setAnalysis(null);
     setProcessed(null);
+    setExportedPath(null);
+  }
+
+  function updateSampleRate(outputSampleRate: 48000 | 96000) {
+    setSettings((current) => ({ ...current, outputSampleRate }));
+    setProcessed(null);
+    setExportedPath(null);
   }
 
   function pauseProcessed() {
@@ -245,13 +278,13 @@ export function App() {
           <div className="segmented">
             <button
               className={settings.outputSampleRate === 48000 ? 'selected' : ''}
-              onClick={() => setSettings((current) => ({ ...current, outputSampleRate: 48000 }))}
+              onClick={() => updateSampleRate(48000)}
             >
               48 kHz / 24-bit WAV
             </button>
             <button
               className={settings.outputSampleRate === 96000 ? 'selected' : ''}
-              onClick={() => setSettings((current) => ({ ...current, outputSampleRate: 96000 }))}
+              onClick={() => updateSampleRate(96000)}
             >
               96 kHz / 24-bit WAV
             </button>
@@ -293,13 +326,13 @@ export function App() {
         <section className="panel">
           <div className="panel-heading">
             <Save size={20} />
-            <h2>Process / Export</h2>
+            <h2>Process Preview</h2>
           </div>
           <button className="primary-action" onClick={process} disabled={!canProcess}>
-            <Save size={18} />
-            {busy === 'processing' ? 'Processing...' : 'Process / Export WAV'}
+            <AudioWaveform size={18} />
+            {busy === 'processing' ? 'Processing...' : 'Create Preview WAV'}
           </button>
-          <div className="path-line">{processed?.outputPath ?? 'No processed file yet'}</div>
+          <div className="path-line">{processed?.outputPath ?? 'No preview file yet'}</div>
           {processed ? (
             <dl className="metadata-grid compact">
               <Field label="Output codec" value={processed.metadata.codecName} />
@@ -308,6 +341,11 @@ export function App() {
               <Field label="Output size" value={formatBytes(processed.metadata.fileSizeBytes)} />
             </dl>
           ) : null}
+          <button className="secondary-action" onClick={exportProcessed} disabled={!canExport}>
+            <Save size={18} />
+            {busy === 'exporting' ? 'Exporting...' : 'Export Approved WAV'}
+          </button>
+          <div className="path-line">{exportedPath ?? 'No exported file yet'}</div>
         </section>
       </div>
 

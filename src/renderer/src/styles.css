@@ -154,7 +154,8 @@ button:disabled {
   letter-spacing: 0;
 }
 
-.primary-action {
+.primary-action,
+.secondary-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -168,8 +169,26 @@ button:disabled {
   font-weight: 700;
 }
 
+.primary-action {
+  color: #ffffff;
+  background: #315f93;
+}
+
 .primary-action:hover:not(:disabled) {
   background: #244c7a;
+}
+
+.secondary-action {
+  margin-top: 14px;
+  border-color: #87939f;
+  color: #26313d;
+  background: #ffffff;
+}
+
+.secondary-action:hover:not(:disabled) {
+  border-color: #315f93;
+  color: #1f4e82;
+  background: #eef4fa;
 }
 
 .path-line {

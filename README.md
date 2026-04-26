@@ -1,6 +1,6 @@
 # Loudness Matcher
 
-Electron + React + TypeScript desktop app for inspecting WAV/MP3 files, running FFmpeg `loudnorm` analysis, and exporting loudness-matched 24-bit WAV files at 48 kHz or 96 kHz.
+Electron + React + TypeScript desktop app for inspecting WAV/MP3 files, running FFmpeg `loudnorm` analysis, previewing loudness-matched output, and exporting approved 24-bit WAV files at 48 kHz or 96 kHz.
 
 ## Requirements
 
@@ -35,7 +35,7 @@ npm run build
 - Metadata inspection through `ffprobe`
 - FFmpeg dependency check at startup
 - First-pass `loudnorm` analysis with JSON parsing
-- Second-pass loudness normalization
-- 48 kHz / 24-bit WAV and 96 kHz / 24-bit WAV export
-- Save dialog with overwrite confirmation
-- Original and processed audio playback
+- Second-pass loudness normalization to a temporary preview WAV
+- Original and processed preview audio playback
+- 48 kHz / 24-bit WAV and 96 kHz / 24-bit WAV export after preview approval
+- Save dialog with overwrite confirmation for approved exports

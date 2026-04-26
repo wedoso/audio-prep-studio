@@ -1,3 +1,4 @@
+import { copyFile, mkdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import electron from 'electron/main';
@@ -71,6 +72,15 @@ function registerAudioProtocol(): void {
   });
 }
 
+async function createPreviewOutputPath(inputPath: string, sampleRate: 48000 | 96000): Promise<string> {
+  const tempDir = path.join(app.getPath('temp'), 'music-fake-eq');
+  await mkdir(tempDir, { recursive: true });
+
+  const suffix = sampleRate === 48000 ? '48k24' : '96k24';
+  const sourceName = path.parse(inputPath).name.replace(/[^\w.-]+/g, '_');
+  return path.join(tempDir, `${sourceName}_matched_${suffix}_${Date.now()}.wav`);
+}
+
 async function createWindow(): Promise<void> {
   const mainWindow = new BrowserWindow({
     width: 1160,
@@ -139,7 +149,23 @@ handleIpc(
       analysis: LoudnessAnalysisResult;
     }
   ) => {
-    const suggestedPath = defaultOutputPath(payload.filePath, payload.settings.outputSampleRate);
+    const previewPath = await createPreviewOutputPath(payload.filePath, payload.settings.outputSampleRate);
+    return processAudio(payload.filePath, previewPath, payload.settings, payload.analysis);
+  }
+);
+
+handleIpc(
+  'audio:export',
+  async (
+    payload: {
+      sourcePath: string;
+      originalPath: string;
+      settings: ProcessingSettings;
+    }
+  ) => {
+    validateAudioPath(payload.sourcePath);
+
+    const suggestedPath = defaultOutputPath(payload.originalPath, payload.settings.outputSampleRate);
     const saveResult = await dialog.showSaveDialog({
       title: 'Export Matched WAV',
       defaultPath: suggestedPath,
@@ -151,7 +177,19 @@ handleIpc(
       throw new AppError('Export was canceled.');
     }
 
-    return processAudio(payload.filePath, saveResult.filePath, payload.settings, payload.analysis);
+    await copyFile(payload.sourcePath, saveResult.filePath);
+
+    try {
+      await unlink(payload.sourcePath);
+    } catch (error) {
+      console.warn(`Could not remove preview file ${payload.sourcePath}: ${String(error)}`);
+    }
+
+    return {
+      outputPath: saveResult.filePath,
+      outputUrl: toAudioUrl(saveResult.filePath),
+      metadata: await readMetadata(saveResult.filePath)
+    };
   }
 );
 
