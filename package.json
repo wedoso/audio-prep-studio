@@ -1,0 +1,29 @@
+{
+  "name": "music-fake-eq",
+  "version": "0.1.0",
+  "description": "Local desktop app for loudness matching and 24-bit WAV export.",
+  "main": "dist/main/index.js",
+  "type": "module",
+  "scripts": {
+    "dev": "cross-env ELECTRON_RUN_AS_NODE= electron-vite dev",
+    "build": "tsc --noEmit && electron-vite build",
+    "preview": "cross-env ELECTRON_RUN_AS_NODE= electron-vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^5.1.2",
+    "electron-vite": "^4.0.0",
+    "vite": "^7.3.0",
+    "typescript": "^5.9.3",
+    "react": "^19.2.3",
+    "react-dom": "^19.2.3",
+    "lucide-react": "^0.555.0",
+    "cross-env": "^10.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "@types/react": "^19.2.7",
+    "@types/react-dom": "^19.2.3",
+    "electron": "^39.2.7"
+  }
+}
