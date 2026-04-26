@@ -283,26 +283,24 @@ export function defaultOutputPath(inputPath: string, sampleRate: 48000 | 96000):
 export async function processAudio(
   filePath: string,
   outputPath: string,
-  settings: ProcessingSettings,
-  analysis: LoudnessAnalysisResult
+  settings: Pick<ProcessingSettings, 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'>
 ): Promise<ProcessResult> {
   validateAudioPath(filePath);
 
-  const filter = buildFilterChain(settings, {
-    includeLoudnormPrint: false,
-    analysis
-  });
+  const preprocessingFilters = buildPreprocessingFilters(settings);
   const args = [
     '-hide_banner',
     '-y',
     '-i',
     filePath,
-    '-af',
-    filter,
     '-c:a',
     'pcm_s24le',
     outputPath
   ];
+
+  if (preprocessingFilters.length > 0) {
+    args.splice(4, 0, '-af', preprocessingFilters.join(','));
+  }
 
   try {
     await runCommand('ffmpeg', args);
@@ -337,17 +335,24 @@ export async function processAudio(
 export async function exportAudioFile(
   sourcePath: string,
   outputPath: string,
-  sampleRate: 48000 | 96000
+  settings: ProcessingSettings,
+  analysis: LoudnessAnalysisResult
 ): Promise<ProcessResult> {
   validateAudioPath(sourcePath);
 
+  const filter = buildFilterChain(settings, {
+    includeLoudnormPrint: false,
+    analysis
+  });
   const args = [
     '-hide_banner',
     '-y',
     '-i',
     sourcePath,
+    '-af',
+    filter,
     '-ar',
-    String(sampleRate),
+    String(settings.outputSampleRate),
     '-c:a',
     'pcm_s24le',
     outputPath
@@ -368,10 +373,10 @@ export async function exportAudioFile(
   }
 
   const metadata = await readMetadata(outputPath);
-  if (metadata.codecName !== 'pcm_s24le' || metadata.sampleRate !== sampleRate) {
+  if (metadata.codecName !== 'pcm_s24le' || metadata.sampleRate !== settings.outputSampleRate) {
     throw new AppError(
       'Exported output did not match the requested WAV settings.',
-      `Expected pcm_s24le at ${sampleRate} Hz, got ${metadata.codecName ?? 'unknown'} at ${
+      `Expected pcm_s24le at ${settings.outputSampleRate} Hz, got ${metadata.codecName ?? 'unknown'} at ${
         metadata.sampleRate ?? 'unknown'
       } Hz.`
     );

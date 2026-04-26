@@ -37,9 +37,10 @@ npm run build
 - Optional light denoise using an 80 Hz high-pass filter
 - Optional de-esser with light, medium, and aggressive presets
 - Editable loudness target controls for LUFS, true peak, and LRA
-- First-pass `loudnorm` analysis with JSON parsing
+- Automatic first-pass `loudnorm` analysis during final export
 - Hover tooltips for audio terminology and processing controls
-- Second-pass processing to a temporary 24-bit WAV preview
+- Temporary 24-bit WAV cleanup preview before loudness matching
+- Automatic second-pass loudness matching during final export
 - Clear playback tags for original, preview, and exported audio
 - Synced A/B playback positions for easier comparison
 - Seekable local playback through an Electron audio protocol with byte-range support
@@ -53,8 +54,8 @@ npm run build
 1. Choose a local `.wav` or `.mp3` file.
 2. Review detected metadata such as codec, sample rate, channels, bit depth, and duration.
 3. Optionally enable light denoise and/or de-esser processing.
-4. Set loudness targets, then run analysis.
-5. Create a processed preview WAV.
-6. Compare original and processed playback from synced positions.
+4. Set final loudness targets.
+5. Create a cleanup preview WAV without running loudness matching.
+6. Compare original and preview playback from synced positions.
 7. Choose the final export preset: `48 kHz / 24-bit WAV` or `96 kHz / 24-bit WAV`.
-8. Export the approved file to local disk.
+8. Export the approved file. The app automatically runs loudness analysis, applies loudness matching, writes the final WAV, and cleans temporary previews.

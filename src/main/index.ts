@@ -192,7 +192,7 @@ async function createWindow(): Promise<void> {
     height: 820,
     minWidth: 920,
     minHeight: 680,
-    title: 'Loudness Matcher',
+    title: 'Audio Prep Studio',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -259,11 +259,10 @@ handleIpc(
     payload: {
       filePath: string;
       settings: ProcessingSettings;
-      analysis: LoudnessAnalysisResult;
     }
   ) => {
     const previewPath = await createPreviewOutputPath(payload.filePath);
-    const result = await processAudio(payload.filePath, previewPath, payload.settings, payload.analysis);
+    const result = await processAudio(payload.filePath, previewPath, payload.settings);
     return {
       ...result,
       isPreview: true
@@ -299,7 +298,8 @@ handleIpc(
       throw new AppError('Export was canceled.');
     }
 
-    const result = await exportAudioFile(payload.sourcePath, saveResult.filePath, payload.settings.outputSampleRate);
+    const analysis = await analyzeLoudness(payload.originalPath, payload.settings);
+    const result = await exportAudioFile(payload.originalPath, saveResult.filePath, payload.settings, analysis);
 
     try {
       await discardPreviewFile(payload.sourcePath);
@@ -307,7 +307,10 @@ handleIpc(
       console.warn(`Could not remove preview file ${payload.sourcePath}: ${String(error)}`);
     }
 
-    return result;
+    return {
+      ...result,
+      analysis
+    };
   }
 );
 

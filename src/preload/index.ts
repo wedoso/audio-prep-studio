@@ -38,9 +38,8 @@ const api = {
   ): Promise<LoudnessAnalysisResult> => invoke('audio:analyze', { filePath, settings }),
   processAudio: (
     filePath: string,
-    settings: ProcessingSettings,
-    analysis: LoudnessAnalysisResult
-  ): Promise<ProcessResult> => invoke('audio:process', { filePath, settings, analysis }),
+    settings: ProcessingSettings
+  ): Promise<ProcessResult> => invoke('audio:process', { filePath, settings }),
   discardPreview: (sourcePath: string): Promise<null> => invoke('audio:discard-preview', { sourcePath }),
   exportAudio: (sourcePath: string, originalPath: string, settings: ProcessingSettings): Promise<ExportResult> =>
     invoke('audio:export', { sourcePath, originalPath, settings })

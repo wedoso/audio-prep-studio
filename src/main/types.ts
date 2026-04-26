@@ -37,7 +37,9 @@ export type ProcessResult = {
   isPreview: boolean;
 };
 
-export type ExportResult = ProcessResult;
+export type ExportResult = ProcessResult & {
+  analysis: LoudnessAnalysisResult;
+};
 
 export type DependencyStatus = {
   ffmpeg: boolean;

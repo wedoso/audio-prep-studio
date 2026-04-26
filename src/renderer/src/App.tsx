@@ -183,8 +183,7 @@ export function App() {
   }, []);
 
   const dependenciesReady = Boolean(deps?.ffmpeg && deps?.ffprobe);
-  const canAnalyze = dependenciesReady && selected && busy === 'idle';
-  const canProcess = canAnalyze && analysis;
+  const canProcess = dependenciesReady && selected && busy === 'idle';
   const canExport = dependenciesReady && selected && processed?.isPreview && busy === 'idle';
   const busyLabel =
     busy === 'loading-file'
@@ -194,7 +193,7 @@ export function App() {
         : busy === 'processing'
           ? 'Processing preview'
           : busy === 'exporting'
-            ? 'Exporting'
+            ? 'Analyzing loudness and exporting'
             : 'Ready';
   const processedPlaybackTag = exportedPath ? 'Exported WAV' : processed?.isPreview ? 'Preview result' : 'No result';
   const processedPlaybackDetail = exportedPath
@@ -238,38 +237,8 @@ export function App() {
     }
   }
 
-  async function analyze() {
-    if (!selected) return;
-
-    setBusy('analyzing');
-    setError(null);
-    await discardCurrentPreview();
-    setAnalysis(null);
-    setProcessed(null);
-    setExportedPath(null);
-
-    try {
-      const result = await window.audioApp.analyzeLoudness(selected.metadata.filePath, {
-        targetLUFS: settings.targetLUFS,
-        truePeak: settings.truePeak,
-        lra: settings.lra,
-        denoiseEnabled: settings.denoiseEnabled,
-        deEsserEnabled: settings.deEsserEnabled,
-        deEsserPreset: settings.deEsserPreset
-      });
-      setAnalysis(result);
-    } catch (caught) {
-      setError({
-        message: caught instanceof Error ? caught.message : 'Loudness analysis failed.',
-        details: caught instanceof Error ? caught.stack : String(caught)
-      });
-    } finally {
-      setBusy('idle');
-    }
-  }
-
   async function process() {
-    if (!selected || !analysis) return;
+    if (!selected) return;
 
     setBusy('processing');
     setError(null);
@@ -278,7 +247,7 @@ export function App() {
     setExportedPath(null);
 
     try {
-      const result = await window.audioApp.processAudio(selected.metadata.filePath, settings, analysis);
+      const result = await window.audioApp.processAudio(selected.metadata.filePath, settings);
       setProcessed(result);
     } catch (caught) {
       setError({
@@ -300,6 +269,7 @@ export function App() {
       const result = await window.audioApp.exportAudio(processed.outputPath, selected.metadata.filePath, settings);
       setExportedPath(result.outputPath);
       setProcessed(result);
+      setAnalysis(result.analysis);
     } catch (caught) {
       setError({
         message: caught instanceof Error ? caught.message : 'Export failed.',
@@ -388,7 +358,7 @@ export function App() {
     <main className="app-shell">
       <header className="topbar">
         <div className="title-block">
-          <h1>Loudness Matcher</h1>
+          <h1>Audio Prep Studio</h1>
           <div className="runtime-line">
             <span>{busyLabel}</span>
             <span>{deps?.ffmpegVersion ?? 'FFmpeg status pending'}</span>
@@ -405,9 +375,9 @@ export function App() {
         <StepPill
           label="Add-ons"
           done={Boolean(selected)}
-          active={Boolean(selected && !analysis && (settings.denoiseEnabled || settings.deEsserEnabled))}
+          active={Boolean(selected && !processed && (settings.denoiseEnabled || settings.deEsserEnabled))}
         />
-        <StepPill label="Preview" done={Boolean(processed)} active={Boolean(analysis && !processed)} />
+        <StepPill label="Preview" done={Boolean(processed)} active={Boolean(selected && !processed)} />
         <StepPill label="Export" done={Boolean(exportedPath)} active={Boolean(processed && !exportedPath)} />
       </section>
 
@@ -453,9 +423,9 @@ export function App() {
           <div className="panel-heading">
             <div className="heading-title">
               <SlidersHorizontal size={20} />
-              <h2>Loudness Target</h2>
+              <h2>Final Loudness Target</h2>
             </div>
-            <span className="panel-badge ready">Editable</span>
+            <span className="panel-badge ready">Auto on export</span>
           </div>
           <div className="number-row">
             <label>
@@ -536,27 +506,6 @@ export function App() {
         <section className="panel">
           <div className="panel-heading">
             <div className="heading-title">
-              <AudioWaveform size={20} />
-              <h2>Loudness Analysis</h2>
-            </div>
-            <span className={analysis ? 'panel-badge ready' : 'panel-badge'}>{analysis ? 'Measured' : 'Pending'}</span>
-          </div>
-          <button className="primary-action" onClick={analyze} disabled={!canAnalyze}>
-            <Activity size={18} />
-            {busy === 'analyzing' ? 'Analyzing...' : 'Analyze Loudness'}
-          </button>
-          <dl className="metadata-grid compact">
-            <Field label="Input Integrated LUFS" value={analysis?.input_i ?? null} help="The measured average loudness of the analyzed audio after optional add-on processing." />
-            <Field label="Input True Peak" value={analysis?.input_tp ?? null} help="The highest estimated playback peak in the analyzed audio. Values above 0 can clip." />
-            <Field label="Input LRA" value={analysis?.input_lra ?? null} help="Measured loudness range, showing how much loudness variation exists across the track." />
-            <Field label="Input Threshold" value={analysis?.input_thresh ?? null} help="The gating threshold FFmpeg used while measuring loudness." />
-            <Field label="Target Offset" value={analysis?.target_offset ?? null} help="The gain offset FFmpeg calculates to hit the target loudness." />
-          </dl>
-        </section>
-
-        <section className="panel">
-          <div className="panel-heading">
-            <div className="heading-title">
               <Save size={20} />
               <h2>Process Preview</h2>
             </div>
@@ -566,7 +515,7 @@ export function App() {
           </div>
           <button className="primary-action" onClick={process} disabled={!canProcess}>
             <AudioWaveform size={18} />
-            {busy === 'processing' ? 'Processing...' : 'Create Preview WAV'}
+            {busy === 'processing' ? 'Processing...' : 'Create Add-on Preview'}
           </button>
           <div className="path-line">{processed?.outputPath ?? 'No preview file yet'}</div>
           {processed ? (
@@ -608,6 +557,10 @@ export function App() {
           <div className="format-note">
             <TermLabel help="The sample rate controls how many samples per second the exported WAV contains. Bit depth stays fixed at 24-bit for delivery headroom.">Preset output</TermLabel>
             <span>{settings.outputSampleRate / 1000} kHz / 24-bit PCM WAV</span>
+          </div>
+          <div className="format-note">
+            <TermLabel help="The app runs FFmpeg loudnorm automatically during export. It first measures the processed audio, then applies loudness matching to the final WAV.">Automatic loudness pass</TermLabel>
+            <span>{analysis ? `Last measured: ${analysis.input_i} LUFS` : 'Runs when you export'}</span>
           </div>
           <button className="secondary-action" onClick={exportProcessed} disabled={!canExport}>
             <Save size={18} />
