@@ -29,6 +29,27 @@ npm run typecheck
 npm run build
 ```
 
+## GitHub CI/CD
+
+GitHub Actions runs typecheck and build on pull requests and pushes to `main`.
+
+Releases are automated from `main` with `semantic-release`. Use conventional commit messages:
+
+- `fix: ...` creates a patch release
+- `feat: ...` creates a minor release
+- `feat!: ...` or `BREAKING CHANGE:` creates a major release
+
+The release workflow creates a GitHub release and tag, updates `CHANGELOG.md`, and bumps `package.json` / `package-lock.json`. It does not publish to npm.
+
+Before the first GitHub release, make sure repository Actions permissions allow the built-in `GITHUB_TOKEN` to read and write contents.
+
+After creating the GitHub repository, add it as the local remote:
+
+```bash
+git remote add origin https://github.com/<owner>/<repo>.git
+git push -u origin main
+```
+
 ## Current Features
 
 - WAV/MP3 file picker with validation

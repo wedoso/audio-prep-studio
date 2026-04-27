@@ -141,7 +141,7 @@ function registerAudioProtocol(): void {
 }
 
 async function getPreviewTempDir(): Promise<string> {
-  const tempDir = path.join(app.getPath('temp'), 'music-fake-eq');
+  const tempDir = path.join(app.getPath('temp'), 'audio-prep-studio');
   await mkdir(tempDir, { recursive: true });
   return tempDir;
 }
