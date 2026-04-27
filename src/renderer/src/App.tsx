@@ -29,6 +29,7 @@ const DEFAULT_SETTINGS: ProcessingSettings = {
   targetLUFS: -14,
   truePeak: -1,
   lra: 7,
+  loudnessEnabled: true,
   outputSampleRate: 48000,
   denoiseEnabled: false,
   denoiseFftEnabled: true,
@@ -221,7 +222,7 @@ export function App() {
         : busy === 'processing'
           ? 'Processing preview'
           : busy === 'exporting'
-            ? 'Analyzing loudness and exporting'
+            ? 'Exporting approved preview'
             : 'Ready';
   const processedPlaybackTag = exportedPath ? 'Exported WAV' : processed?.isPreview ? 'Preview result' : 'No result';
   const processedPlaybackDetail = exportedPath
@@ -285,6 +286,7 @@ export function App() {
     try {
       const result = await window.audioApp.processAudio(selected.metadata.filePath, settings);
       setProcessed(result);
+      setAnalysis(result.analysis ?? null);
     } catch (caught) {
       setError({
         message: caught instanceof Error ? caught.message : 'Processing failed.',
@@ -305,7 +307,6 @@ export function App() {
       const result = await window.audioApp.exportAudio(processed.outputPath, selected.metadata.filePath, settings);
       setExportedPath(result.outputPath);
       setProcessed(result);
-      setAnalysis(result.analysis);
     } catch (caught) {
       setError({
         message: caught instanceof Error ? caught.message : 'Export failed.',
@@ -343,6 +344,7 @@ export function App() {
         | 'denoiseLowpassHz'
         | 'deEsserEnabled'
         | 'deEsserPreset'
+        | 'loudnessEnabled'
       >
     >
   ) {
@@ -546,9 +548,11 @@ export function App() {
       <section className="workflow-strip">
         <StepPill label="File" done={Boolean(selected)} active={!selected} />
         <StepPill
-          label="Add-ons"
+          label="Processing"
           done={Boolean(selected)}
-          active={Boolean(selected && !processed && (settings.denoiseEnabled || settings.deEsserEnabled))}
+          active={Boolean(
+            selected && !processed && (settings.denoiseEnabled || settings.deEsserEnabled || settings.loudnessEnabled)
+          )}
         />
         <StepPill label="Preview" done={Boolean(processed)} active={Boolean(selected && !processed)} />
         <StepPill label="Export" done={Boolean(exportedPath)} active={Boolean(processed && !exportedPath)} />
@@ -596,34 +600,16 @@ export function App() {
           <div className="panel-heading">
             <div className="heading-title">
               <SlidersHorizontal size={20} />
-              <h2>Final Loudness Target</h2>
+              <h2>Processing</h2>
             </div>
-            <span className="panel-badge ready">Auto on export</span>
-          </div>
-          <div className="number-row">
-            <label>
-              <TermLabel help="Integrated loudness target. More negative values sound quieter; less negative values sound louder. -14 LUFS is a common streaming target.">Target LUFS</TermLabel>
-              <input type="number" step="0.1" value={settings.targetLUFS} onChange={(event) => updateNumberSetting('targetLUFS', event)} />
-            </label>
-            <label>
-              <TermLabel help="Maximum allowed peak after processing. Keeping this below 0 dB helps avoid clipping during playback or conversion.">True Peak</TermLabel>
-              <input type="number" step="0.1" value={settings.truePeak} onChange={(event) => updateNumberSetting('truePeak', event)} />
-            </label>
-            <label>
-              <TermLabel help="Loudness range target. Lower values compress perceived dynamics; higher values preserve more contrast between quiet and loud sections.">LRA</TermLabel>
-              <input type="number" step="0.1" value={settings.lra} onChange={(event) => updateNumberSetting('lra', event)} />
-            </label>
-          </div>
-        </section>
-
-        <section className="panel">
-          <div className="panel-heading">
-            <div className="heading-title">
-              <SlidersHorizontal size={20} />
-              <h2>Audio Processing</h2>
-            </div>
-            <span className={settings.denoiseEnabled || settings.deEsserEnabled ? 'panel-badge ready' : 'panel-badge'}>
-              {settings.denoiseEnabled || settings.deEsserEnabled ? 'Enabled' : 'Bypassed'}
+            <span
+              className={
+                settings.denoiseEnabled || settings.deEsserEnabled || settings.loudnessEnabled
+                  ? 'panel-badge ready'
+                  : 'panel-badge'
+              }
+            >
+              {settings.denoiseEnabled || settings.deEsserEnabled || settings.loudnessEnabled ? 'Enabled' : 'Bypassed'}
             </span>
           </div>
           <div className="toggle-stack">
@@ -653,6 +639,20 @@ export function App() {
                   <Help text="Reduces sharp sibilance and hiss in the upper frequencies. Stronger settings can make vocals less harsh, but too much can dull the track." />
                 </strong>
                 <small>Reduces harsh sibilance around 6.2 kHz and 9 kHz</small>
+              </span>
+            </label>
+            <label className="toggle-row">
+              <input
+                type="checkbox"
+                checked={settings.loudnessEnabled}
+                onChange={(event) => updateProcessingSetting({ loudnessEnabled: event.target.checked })}
+              />
+              <span>
+                <strong>
+                  Loudness matching
+                  <Help text="Measures perceived loudness and adjusts the preview toward the target LUFS, true peak, and loudness range. This helps compare the finished sound before export." />
+                </strong>
+                <small>Two-pass FFmpeg loudnorm adjustment</small>
               </span>
             </label>
           </div>
@@ -738,6 +738,38 @@ export function App() {
               </select>
             </label>
           </div>
+          <div className="number-row loudness-controls">
+            <label>
+              <TermLabel help="Integrated loudness target. More negative values sound quieter; less negative values sound louder. -14 LUFS is a common streaming target.">Target LUFS</TermLabel>
+              <input
+                type="number"
+                step="0.1"
+                value={settings.targetLUFS}
+                disabled={!settings.loudnessEnabled}
+                onChange={(event) => updateNumberSetting('targetLUFS', event)}
+              />
+            </label>
+            <label>
+              <TermLabel help="Maximum allowed peak after processing. Keeping this below 0 dB helps avoid clipping during playback or conversion.">True Peak</TermLabel>
+              <input
+                type="number"
+                step="0.1"
+                value={settings.truePeak}
+                disabled={!settings.loudnessEnabled}
+                onChange={(event) => updateNumberSetting('truePeak', event)}
+              />
+            </label>
+            <label>
+              <TermLabel help="Loudness range target. Lower values compress perceived dynamics; higher values preserve more contrast between quiet and loud sections.">LRA</TermLabel>
+              <input
+                type="number"
+                step="0.1"
+                value={settings.lra}
+                disabled={!settings.loudnessEnabled}
+                onChange={(event) => updateNumberSetting('lra', event)}
+              />
+            </label>
+          </div>
         </section>
 
         <section className="panel">
@@ -752,7 +784,7 @@ export function App() {
           </div>
           <button className="primary-action" onClick={process} disabled={!canProcess}>
             <AudioWaveform size={18} />
-            {busy === 'processing' ? 'Processing...' : 'Create Add-on Preview'}
+            {busy === 'processing' ? 'Processing...' : 'Create Processing Preview'}
           </button>
           <div className="path-line">{processed?.outputPath ?? 'No preview file yet'}</div>
           {processed ? (
@@ -761,6 +793,7 @@ export function App() {
               <Field label="Preview sample rate" value={processed.metadata.sampleRate ? `${processed.metadata.sampleRate} Hz` : null} help="The temporary preview keeps the processed sound for listening. Final sample rate is selected during export." />
               <Field label="Preview bit depth" value={processed.metadata.bitsPerSample ? `${processed.metadata.bitsPerSample}-bit` : null} help="The preview is rendered as 24-bit WAV for clean listening before export." />
               <Field label="Output size" value={formatBytes(processed.metadata.fileSizeBytes)} />
+              <Field label="Loudness" value={analysis ? `${analysis.input_i} LUFS measured` : 'Bypassed'} help="When loudness matching is enabled, this is the first-pass loudness measurement used to create the preview." />
             </dl>
           ) : null}
         </section>
@@ -796,8 +829,8 @@ export function App() {
             <span>{settings.outputSampleRate / 1000} kHz / 24-bit PCM WAV</span>
           </div>
           <div className="format-note">
-            <TermLabel help="The app runs FFmpeg loudnorm automatically during export. It first measures the processed audio, then applies loudness matching to the final WAV.">Automatic loudness pass</TermLabel>
-            <span>{analysis ? `Last measured: ${analysis.input_i} LUFS` : 'Runs when you export'}</span>
+            <TermLabel help="Export writes the approved preview to the selected sample rate and 24-bit WAV. Processing decisions should be previewed before this step.">Approved preview</TermLabel>
+            <span>{processed ? 'Ready for format conversion' : 'Create a preview first'}</span>
           </div>
           <button className="secondary-action" onClick={exportProcessed} disabled={!canExport}>
             <Save size={18} />

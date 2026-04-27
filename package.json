@@ -1,7 +1,7 @@
 {
   "name": "music-fake-eq",
   "version": "0.1.0",
-  "description": "Local desktop app for loudness matching and 24-bit WAV export.",
+  "description": "Local desktop app for previewing audio processing and exporting 24-bit WAV files.",
   "main": "dist/main/index.js",
   "type": "module",
   "scripts": {

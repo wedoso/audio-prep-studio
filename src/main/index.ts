@@ -299,7 +299,7 @@ handleIpc(
 
     const suggestedPath = defaultOutputPath(payload.originalPath, payload.settings.outputSampleRate);
     const saveResult = await dialog.showSaveDialog({
-      title: 'Export Matched WAV',
+      title: 'Export Prepared WAV',
       defaultPath: suggestedPath,
       filters: [{ name: 'WAV Audio', extensions: ['wav'] }],
       properties: ['showOverwriteConfirmation', 'createDirectory']
@@ -309,8 +309,7 @@ handleIpc(
       throw new AppError('Export was canceled.');
     }
 
-    const analysis = await analyzeLoudness(payload.originalPath, payload.settings);
-    const result = await exportAudioFile(payload.originalPath, saveResult.filePath, payload.settings, analysis);
+    const result = await exportAudioFile(payload.sourcePath, saveResult.filePath, payload.settings.outputSampleRate);
 
     try {
       await discardPreviewFile(payload.sourcePath);
@@ -318,10 +317,7 @@ handleIpc(
       console.warn(`Could not remove preview file ${payload.sourcePath}: ${String(error)}`);
     }
 
-    return {
-      ...result,
-      analysis
-    };
+    return result;
   }
 );
 

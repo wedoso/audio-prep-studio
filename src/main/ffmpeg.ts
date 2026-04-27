@@ -332,28 +332,28 @@ function buildFilterChain(
 export function defaultOutputPath(inputPath: string, sampleRate: 48000 | 96000): string {
   const suffix = sampleRate === 48000 ? '48k24' : '96k24';
   const parsed = path.parse(inputPath);
-  return path.join(parsed.dir, `${parsed.name}_matched_${suffix}.wav`);
+  return path.join(parsed.dir, `${parsed.name}_prepared_${suffix}.wav`);
 }
 
 export async function processAudio(
   filePath: string,
   outputPath: string,
-  settings: Pick<
-    ProcessingSettings,
-    | 'denoiseEnabled'
-    | 'denoiseFftEnabled'
-    | 'denoiseNoiseFloor'
-    | 'denoiseHighpassEnabled'
-    | 'denoiseHighpassHz'
-    | 'denoiseLowpassEnabled'
-    | 'denoiseLowpassHz'
-    | 'deEsserEnabled'
-    | 'deEsserPreset'
-  >
+  settings: ProcessingSettings
 ): Promise<ProcessResult> {
   validateAudioPath(filePath);
 
-  const preprocessingFilters = buildPreprocessingFilters(settings);
+  let analysis: LoudnessAnalysisResult | null = null;
+  let filters = buildPreprocessingFilters(settings);
+
+  if (settings.loudnessEnabled) {
+    analysis = await analyzeLoudness(filePath, settings);
+    filters = [
+      buildFilterChain(settings, {
+        includeLoudnormPrint: false,
+        analysis
+      })
+    ];
+  }
   const args = [
     '-hide_banner',
     '-y',
@@ -364,8 +364,8 @@ export async function processAudio(
     outputPath
   ];
 
-  if (preprocessingFilters.length > 0) {
-    args.splice(4, 0, '-af', preprocessingFilters.join(','));
+  if (filters.length > 0) {
+    args.splice(4, 0, '-af', filters.join(','));
   }
 
   try {
@@ -394,31 +394,25 @@ export async function processAudio(
     outputPath,
     outputUrl: toAudioUrl(outputPath),
     metadata,
-    isPreview: false
+    isPreview: false,
+    analysis
   };
 }
 
 export async function exportAudioFile(
   sourcePath: string,
   outputPath: string,
-  settings: ProcessingSettings,
-  analysis: LoudnessAnalysisResult
+  sampleRate: 48000 | 96000
 ): Promise<ProcessResult> {
   validateAudioPath(sourcePath);
 
-  const filter = buildFilterChain(settings, {
-    includeLoudnormPrint: false,
-    analysis
-  });
   const args = [
     '-hide_banner',
     '-y',
     '-i',
     sourcePath,
-    '-af',
-    filter,
     '-ar',
-    String(settings.outputSampleRate),
+    String(sampleRate),
     '-c:a',
     'pcm_s24le',
     outputPath
@@ -439,10 +433,10 @@ export async function exportAudioFile(
   }
 
   const metadata = await readMetadata(outputPath);
-  if (metadata.codecName !== 'pcm_s24le' || metadata.sampleRate !== settings.outputSampleRate) {
+  if (metadata.codecName !== 'pcm_s24le' || metadata.sampleRate !== sampleRate) {
     throw new AppError(
       'Exported output did not match the requested WAV settings.',
-      `Expected pcm_s24le at ${settings.outputSampleRate} Hz, got ${metadata.codecName ?? 'unknown'} at ${
+      `Expected pcm_s24le at ${sampleRate} Hz, got ${metadata.codecName ?? 'unknown'} at ${
         metadata.sampleRate ?? 'unknown'
       } Hz.`
     );

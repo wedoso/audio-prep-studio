@@ -24,6 +24,7 @@ export type ProcessingSettings = {
   targetLUFS: number;
   truePeak: number;
   lra: number;
+  loudnessEnabled: boolean;
   outputSampleRate: 48000 | 96000;
   denoiseEnabled: boolean;
   denoiseFftEnabled: boolean;
@@ -41,11 +42,10 @@ export type ProcessResult = {
   outputUrl: string;
   metadata: AudioMetadata;
   isPreview: boolean;
+  analysis?: LoudnessAnalysisResult | null;
 };
 
-export type ExportResult = ProcessResult & {
-  analysis: LoudnessAnalysisResult;
-};
+export type ExportResult = ProcessResult;
 
 export type DependencyStatus = {
   ffmpeg: boolean;
