@@ -1,6 +1,6 @@
 {
   "name": "audio-prep-studio",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Local desktop app for previewing audio processing and exporting 24-bit WAV files.",
   "main": "dist/main/index.js",
   "type": "module",
