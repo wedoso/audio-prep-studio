@@ -581,7 +581,7 @@ export function App() {
             <FolderOpen size={18} />
             Choose Audio File
           </button>
-          <div className="path-line">{selected?.metadata.filePath ?? 'No file selected'}</div>
+          <div className="path-line compact-path">{selected?.metadata.filePath ?? 'No file selected'}</div>
 
           <dl className="metadata-grid">
             <Field label="File name" value={selected?.metadata.fileName ?? null} />
@@ -596,7 +596,7 @@ export function App() {
           </dl>
         </section>
 
-        <section className="panel">
+        <section className="panel processing-panel">
           <div className="panel-heading">
             <div className="heading-title">
               <SlidersHorizontal size={20} />
@@ -612,7 +612,7 @@ export function App() {
               {settings.denoiseEnabled || settings.deEsserEnabled || settings.loudnessEnabled ? 'Enabled' : 'Bypassed'}
             </span>
           </div>
-          <div className="toggle-stack">
+          <div className="module-grid">
             <label className="toggle-row">
               <input
                 type="checkbox"
@@ -656,7 +656,9 @@ export function App() {
               </span>
             </label>
           </div>
-          <div className="number-row denoise-controls">
+          <div className="settings-group">
+            <div className="settings-group-title">Denoise</div>
+            <div className="number-row denoise-controls">
             <label>
               <TermLabel help="Noise floor for FFmpeg afftdn. Valid range is -80 to -20 dB. More negative values are lighter; values closer to -20 remove more noise but can create artifacts.">Noise floor</TermLabel>
               <label className="mini-toggle">
@@ -719,8 +721,11 @@ export function App() {
                 onChange={(event) => updateProcessingSetting({ denoiseLowpassHz: Number(event.target.value) })}
               />
             </label>
+            </div>
           </div>
-          <div className="preset-row">
+          <div className="settings-group">
+            <div className="settings-group-title">De-esser</div>
+            <div className="preset-row">
             <label>
               <TermLabel help="Controls how much high-frequency reduction is applied by the de-esser. Start with Light and increase only if the preview still sounds harsh.">De-esser preset</TermLabel>
               <select
@@ -737,8 +742,11 @@ export function App() {
                 <option value="aggressive">Aggressive</option>
               </select>
             </label>
+            </div>
           </div>
-          <div className="number-row loudness-controls">
+          <div className="settings-group">
+            <div className="settings-group-title">Loudness</div>
+            <div className="number-row loudness-controls">
             <label>
               <TermLabel help="Integrated loudness target. More negative values sound quieter; less negative values sound louder. -14 LUFS is a common streaming target.">Target LUFS</TermLabel>
               <input
@@ -769,24 +777,31 @@ export function App() {
                 onChange={(event) => updateNumberSetting('lra', event)}
               />
             </label>
+            </div>
           </div>
         </section>
 
-        <section className="panel">
+        <section className="panel delivery-panel">
           <div className="panel-heading">
             <div className="heading-title">
               <Save size={20} />
-              <h2>Process Preview</h2>
+              <h2>Preview & Export</h2>
             </div>
             <span className={exportedPath ? 'panel-badge ready' : processed ? 'panel-badge ready' : 'panel-badge'}>
               {exportedPath ? 'Exported' : processed ? 'Preview ready' : 'Pending'}
             </span>
           </div>
-          <button className="primary-action" onClick={process} disabled={!canProcess}>
-            <AudioWaveform size={18} />
-            {busy === 'processing' ? 'Processing...' : 'Create Processing Preview'}
-          </button>
-          <div className="path-line">{processed?.outputPath ?? 'No preview file yet'}</div>
+          <div className="delivery-actions">
+            <button className="primary-action" onClick={process} disabled={!canProcess}>
+              <AudioWaveform size={18} />
+              {busy === 'processing' ? 'Processing...' : 'Create Preview'}
+            </button>
+            <button className="secondary-action" onClick={exportProcessed} disabled={!canExport}>
+              <Save size={18} />
+              {busy === 'exporting' ? 'Exporting...' : 'Export WAV'}
+            </button>
+          </div>
+          <div className="path-line compact-path">{processed?.outputPath ?? 'No preview file yet'}</div>
           {processed ? (
             <dl className="metadata-grid compact">
               <Field label="Output codec" value={processed.metadata.codecName} />
@@ -796,18 +811,7 @@ export function App() {
               <Field label="Loudness" value={analysis ? `${analysis.input_i} LUFS measured` : 'Bypassed'} help="When loudness matching is enabled, this is the first-pass loudness measurement used to create the preview." />
             </dl>
           ) : null}
-        </section>
-
-        <section className="panel">
-          <div className="panel-heading">
-            <div className="heading-title">
-              <Save size={20} />
-              <h2>Export Format</h2>
-            </div>
-            <span className={exportedPath ? 'panel-badge ready' : processed ? 'panel-badge ready' : 'panel-badge'}>
-              {exportedPath ? 'Saved' : processed ? 'Ready' : 'Waiting'}
-            </span>
-          </div>
+          <div className="delivery-divider" />
           <div className="segmented">
             <button
               className={settings.outputSampleRate === 48000 ? 'selected' : ''}
@@ -832,11 +836,7 @@ export function App() {
             <TermLabel help="Export writes the approved preview to the selected sample rate and 24-bit WAV. Processing decisions should be previewed before this step.">Approved preview</TermLabel>
             <span>{processed ? 'Ready for format conversion' : 'Create a preview first'}</span>
           </div>
-          <button className="secondary-action" onClick={exportProcessed} disabled={!canExport}>
-            <Save size={18} />
-            {busy === 'exporting' ? 'Exporting...' : 'Export Approved WAV'}
-          </button>
-          <div className="path-line">{exportedPath ?? 'No exported file yet'}</div>
+          <div className="path-line compact-path">{exportedPath ?? 'No exported file yet'}</div>
         </section>
       </div>
 
