@@ -41,8 +41,8 @@ npm run build
 - Hover tooltips for audio terminology and processing controls
 - Temporary 24-bit WAV processing preview before final export
 - Clear playback tags for original, preview, and exported audio
-- Synced A/B playback positions for easier comparison
-- A/B switch for quickly toggling playback between original and processed audio
+- Single shared playback control for original and processed comparison
+- A/B switch that preserves playback position when toggling between original and processed audio
 - Seekable local playback through an Electron audio protocol with byte-range support
 - Final export format selection after preview approval
 - 48 kHz / 24-bit WAV and 96 kHz / 24-bit WAV export from the approved preview

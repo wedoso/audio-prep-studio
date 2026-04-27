@@ -124,20 +124,14 @@ function AudioPlayer({
   detail,
   src,
   audioRef,
-  onPlay,
-  onPause,
-  onSeek,
-  onTimeUpdate
+  onLoadedMetadata
 }: {
   label: string;
   tag: string;
   detail: string;
   src: string | null;
   audioRef: React.RefObject<HTMLAudioElement | null>;
-  onPlay: (audio: HTMLAudioElement) => void;
-  onPause: () => void;
-  onSeek: (audio: HTMLAudioElement) => void;
-  onTimeUpdate: (audio: HTMLAudioElement) => void;
+  onLoadedMetadata: (audio: HTMLAudioElement) => void;
 }) {
   return (
     <div className="player">
@@ -152,11 +146,7 @@ function AudioPlayer({
         ref={audioRef}
         src={src ?? undefined}
         controls
-        onPlay={(event) => onPlay(event.currentTarget)}
-        onPause={onPause}
-        onEnded={onPause}
-        onSeeked={(event) => onSeek(event.currentTarget)}
-        onTimeUpdate={(event) => onTimeUpdate(event.currentTarget)}
+        onLoadedMetadata={(event) => onLoadedMetadata(event.currentTarget)}
       />
     </div>
   );
@@ -173,12 +163,9 @@ export function App() {
   const [noiseFloorInput, setNoiseFloorInput] = useState(String(DEFAULT_SETTINGS.denoiseNoiseFloor));
   const [busy, setBusy] = useState<BusyState>('idle');
   const [error, setError] = useState<{ message: string; details?: string } | null>(null);
-  const originalAudio = useRef<HTMLAudioElement | null>(null);
-  const processedAudio = useRef<HTMLAudioElement | null>(null);
+  const playbackAudio = useRef<HTMLAudioElement | null>(null);
   const processedRef = useRef<ProcessResult | null>(null);
-  const syncingAudio = useRef(false);
-  const switchingCompare = useRef(false);
-  const dualCompareMode = useRef(false);
+  const pendingPlaybackRestore = useRef<{ time: number; shouldPlay: boolean } | null>(null);
 
   useEffect(() => {
     window.audioApp
@@ -234,18 +221,21 @@ export function App() {
     : processed?.isPreview
       ? 'Temporary processed preview'
       : 'Create a preview to compare';
+  const playbackSrc = activeCompare === 'processed' && processed ? processed.outputUrl : selected?.fileUrl ?? null;
+  const playbackLabel = activeCompare === 'processed' ? 'Processed' : 'Original';
+  const playbackTag =
+    activeCompare === 'processed' ? processedPlaybackTag : selected ? 'Input file' : 'No input';
+  const playbackDetail =
+    activeCompare === 'processed'
+      ? processedPlaybackDetail
+      : selected?.metadata.fileName ?? 'Choose an audio file';
 
   async function discardCurrentPreview() {
     if (!processed?.isPreview) return;
 
-    dualCompareMode.current = false;
-    originalAudio.current?.pause();
-    processedAudio.current?.pause();
-    if (originalAudio.current) {
-      originalAudio.current.muted = false;
-    }
-    if (processedAudio.current) {
-      processedAudio.current.muted = false;
+    playbackAudio.current?.pause();
+    if (activeCompare === 'processed') {
+      setActiveCompare('original');
     }
 
     try {
@@ -264,6 +254,7 @@ export function App() {
       if (result) {
         await discardCurrentPreview();
         setSelected(result);
+        setActiveCompare('original');
         setAnalysis(null);
         setProcessed(null);
         setExportedPath(null);
@@ -317,6 +308,7 @@ export function App() {
       );
       setExportedPath(result.outputPath);
       setProcessed(result);
+      setActiveCompare('processed');
     } catch (caught) {
       setError({
         message: caught instanceof Error ? caught.message : 'Export failed.',
@@ -385,158 +377,38 @@ export function App() {
     }
   }
 
-  function syncAudioPosition(source: HTMLAudioElement, target: HTMLAudioElement | null) {
-    if (!target || !source.src || !target.src || syncingAudio.current) return;
-    if (!Number.isFinite(source.currentTime)) return;
+  function restorePlaybackPosition(audio: HTMLAudioElement) {
+    const pending = pendingPlaybackRestore.current;
+    if (!pending) return;
 
-    const targetDuration = Number.isFinite(target.duration) ? target.duration : source.currentTime;
-    const nextTime = Math.max(0, Math.min(source.currentTime, targetDuration));
-
-    if (Math.abs(target.currentTime - nextTime) < 0.2) return;
-
-    syncingAudio.current = true;
-    try {
-      target.currentTime = nextTime;
-    } catch (caught) {
-      console.warn('Could not sync playback position.', caught);
-    }
-    window.setTimeout(() => {
-      syncingAudio.current = false;
-    }, 0);
-  }
-
-  function alignAudioTime(audio: HTMLAudioElement, time: number) {
-    const duration = Number.isFinite(audio.duration) ? audio.duration : time;
-    const nextTime = Math.max(0, Math.min(time, duration));
-
-    if (Math.abs(audio.currentTime - nextTime) < 0.04) return;
+    const duration = Number.isFinite(audio.duration) ? audio.duration : pending.time;
+    const nextTime = Math.max(0, Math.min(pending.time, duration));
 
     try {
       audio.currentTime = nextTime;
     } catch (caught) {
-      console.warn('Could not align comparison playback.', caught);
-    }
-  }
-
-  function setAudibleTrack(next: 'original' | 'processed') {
-    const original = originalAudio.current;
-    const processedTrack = processedAudio.current;
-
-    if (original) {
-      original.muted = next !== 'original';
-    }
-    if (processedTrack) {
-      processedTrack.muted = next !== 'processed';
-    }
-    setActiveCompare(next);
-  }
-
-  function handleOriginalPlay(audio: HTMLAudioElement) {
-    if (switchingCompare.current) {
-      return;
-    }
-    if (dualCompareMode.current) {
-      setAudibleTrack('original');
-      return;
+      console.warn('Could not restore playback position.', caught);
     }
 
-    setActiveCompare('original');
-    syncAudioPosition(audio, processedAudio.current);
-    processedAudio.current?.pause();
-  }
-
-  function handleProcessedPlay(audio: HTMLAudioElement) {
-    if (switchingCompare.current) {
-      return;
+    if (pending.shouldPlay) {
+      void audio.play().catch((caught) => console.warn('Could not resume playback after switching.', caught));
     }
-    if (dualCompareMode.current) {
-      setAudibleTrack('processed');
-      return;
-    }
-
-    setActiveCompare('processed');
-    syncAudioPosition(audio, originalAudio.current);
-    originalAudio.current?.pause();
-  }
-
-  function handleOriginalSeek(audio: HTMLAudioElement) {
-    syncAudioPosition(audio, processedAudio.current);
-  }
-
-  function handleProcessedSeek(audio: HTMLAudioElement) {
-    syncAudioPosition(audio, originalAudio.current);
-  }
-
-  function handleOriginalTimeUpdate(audio: HTMLAudioElement) {
-    if (dualCompareMode.current && activeCompare === 'original') {
-      const target = processedAudio.current;
-      if (target?.src && !target.paused && Math.abs(target.currentTime - audio.currentTime) > 0.12) {
-        syncAudioPosition(audio, target);
-      }
-      return;
-    }
-
-    if (!audio.paused) {
-      syncAudioPosition(audio, processedAudio.current);
-    }
-  }
-
-  function handleProcessedTimeUpdate(audio: HTMLAudioElement) {
-    if (dualCompareMode.current && activeCompare === 'processed') {
-      const target = originalAudio.current;
-      if (target?.src && !target.paused && Math.abs(target.currentTime - audio.currentTime) > 0.12) {
-        syncAudioPosition(audio, target);
-      }
-      return;
-    }
-
-    if (!audio.paused) {
-      syncAudioPosition(audio, originalAudio.current);
-    }
-  }
-
-  function pauseBothPlayers() {
-    if (switchingCompare.current) return;
-
-    originalAudio.current?.pause();
-    processedAudio.current?.pause();
-    dualCompareMode.current = false;
+    pendingPlaybackRestore.current = null;
   }
 
   function switchComparison(next: 'original' | 'processed') {
-    const original = originalAudio.current;
-    const processedTrack = processedAudio.current;
-    const nextAudio = next === 'original' ? original : processedTrack;
-    const previousAudio = next === 'original' ? processedTrack : original;
+    if (next === activeCompare) return;
+    if (next === 'original' && !selected) return;
+    if (next === 'processed' && !processed) return;
 
-    if (!nextAudio?.src) return;
-
-    const referenceTime = previousAudio?.src ? previousAudio.currentTime : nextAudio.currentTime;
-    switchingCompare.current = true;
-
-    if (original?.src && processedTrack?.src) {
-      alignAudioTime(original, referenceTime);
-      alignAudioTime(processedTrack, referenceTime);
-      setAudibleTrack(next);
-      dualCompareMode.current = true;
-
-      void Promise.allSettled([original.play(), processedTrack.play()]).finally(() => {
-        window.setTimeout(() => {
-          switchingCompare.current = false;
-        }, 80);
-      });
-      return;
+    const audio = playbackAudio.current;
+    if (audio?.src) {
+      pendingPlaybackRestore.current = {
+        time: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+        shouldPlay: !audio.paused
+      };
     }
-
-    alignAudioTime(nextAudio, referenceTime);
-    previousAudio?.pause();
-    setAudibleTrack(next);
-    void nextAudio
-      .play()
-      .catch((caught) => console.warn('Could not switch playback.', caught))
-      .finally(() => {
-        switchingCompare.current = false;
-      });
+    setActiveCompare(next);
   }
 
   return (
@@ -892,26 +764,12 @@ export function App() {
         </div>
         <div className="players">
           <AudioPlayer
-            label="Original"
-            tag={selected ? 'Input file' : 'No input'}
-            detail={selected?.metadata.fileName ?? 'Choose an audio file'}
-            src={selected?.fileUrl ?? null}
-            audioRef={originalAudio}
-            onPlay={handleOriginalPlay}
-            onPause={pauseBothPlayers}
-            onSeek={handleOriginalSeek}
-            onTimeUpdate={handleOriginalTimeUpdate}
-          />
-          <AudioPlayer
-            label="Processed"
-            tag={processedPlaybackTag}
-            detail={processedPlaybackDetail}
-            src={processed?.outputUrl ?? null}
-            audioRef={processedAudio}
-            onPlay={handleProcessedPlay}
-            onPause={pauseBothPlayers}
-            onSeek={handleProcessedSeek}
-            onTimeUpdate={handleProcessedTimeUpdate}
+            label={playbackLabel}
+            tag={playbackTag}
+            detail={playbackDetail}
+            src={playbackSrc}
+            audioRef={playbackAudio}
+            onLoadedMetadata={restorePlaybackPosition}
           />
         </div>
       </section>
