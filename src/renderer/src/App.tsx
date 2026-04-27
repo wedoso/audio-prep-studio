@@ -124,6 +124,7 @@ function AudioPlayer({
   src,
   audioRef,
   onPlay,
+  onPause,
   onSeek,
   onTimeUpdate
 }: {
@@ -133,6 +134,7 @@ function AudioPlayer({
   src: string | null;
   audioRef: React.RefObject<HTMLAudioElement | null>;
   onPlay: (audio: HTMLAudioElement) => void;
+  onPause: () => void;
   onSeek: (audio: HTMLAudioElement) => void;
   onTimeUpdate: (audio: HTMLAudioElement) => void;
 }) {
@@ -150,6 +152,8 @@ function AudioPlayer({
         src={src ?? undefined}
         controls
         onPlay={(event) => onPlay(event.currentTarget)}
+        onPause={onPause}
+        onEnded={onPause}
         onSeeked={(event) => onSeek(event.currentTarget)}
         onTimeUpdate={(event) => onTimeUpdate(event.currentTarget)}
       />
@@ -172,6 +176,8 @@ export function App() {
   const processedAudio = useRef<HTMLAudioElement | null>(null);
   const processedRef = useRef<ProcessResult | null>(null);
   const syncingAudio = useRef(false);
+  const switchingCompare = useRef(false);
+  const dualCompareMode = useRef(false);
 
   useEffect(() => {
     window.audioApp
@@ -227,7 +233,15 @@ export function App() {
   async function discardCurrentPreview() {
     if (!processed?.isPreview) return;
 
+    dualCompareMode.current = false;
+    originalAudio.current?.pause();
     processedAudio.current?.pause();
+    if (originalAudio.current) {
+      originalAudio.current.muted = false;
+    }
+    if (processedAudio.current) {
+      processedAudio.current.muted = false;
+    }
 
     try {
       await window.audioApp.discardPreview(processed.outputPath);
@@ -379,13 +393,55 @@ export function App() {
     }, 0);
   }
 
+  function alignAudioTime(audio: HTMLAudioElement, time: number) {
+    const duration = Number.isFinite(audio.duration) ? audio.duration : time;
+    const nextTime = Math.max(0, Math.min(time, duration));
+
+    if (Math.abs(audio.currentTime - nextTime) < 0.04) return;
+
+    try {
+      audio.currentTime = nextTime;
+    } catch (caught) {
+      console.warn('Could not align comparison playback.', caught);
+    }
+  }
+
+  function setAudibleTrack(next: 'original' | 'processed') {
+    const original = originalAudio.current;
+    const processedTrack = processedAudio.current;
+
+    if (original) {
+      original.muted = next !== 'original';
+    }
+    if (processedTrack) {
+      processedTrack.muted = next !== 'processed';
+    }
+    setActiveCompare(next);
+  }
+
   function handleOriginalPlay(audio: HTMLAudioElement) {
+    if (switchingCompare.current) {
+      return;
+    }
+    if (dualCompareMode.current) {
+      setAudibleTrack('original');
+      return;
+    }
+
     setActiveCompare('original');
     syncAudioPosition(audio, processedAudio.current);
     processedAudio.current?.pause();
   }
 
   function handleProcessedPlay(audio: HTMLAudioElement) {
+    if (switchingCompare.current) {
+      return;
+    }
+    if (dualCompareMode.current) {
+      setAudibleTrack('processed');
+      return;
+    }
+
     setActiveCompare('processed');
     syncAudioPosition(audio, originalAudio.current);
     originalAudio.current?.pause();
@@ -400,15 +456,39 @@ export function App() {
   }
 
   function handleOriginalTimeUpdate(audio: HTMLAudioElement) {
+    if (dualCompareMode.current && activeCompare === 'original') {
+      const target = processedAudio.current;
+      if (target?.src && !target.paused && Math.abs(target.currentTime - audio.currentTime) > 0.12) {
+        syncAudioPosition(audio, target);
+      }
+      return;
+    }
+
     if (!audio.paused) {
       syncAudioPosition(audio, processedAudio.current);
     }
   }
 
   function handleProcessedTimeUpdate(audio: HTMLAudioElement) {
+    if (dualCompareMode.current && activeCompare === 'processed') {
+      const target = originalAudio.current;
+      if (target?.src && !target.paused && Math.abs(target.currentTime - audio.currentTime) > 0.12) {
+        syncAudioPosition(audio, target);
+      }
+      return;
+    }
+
     if (!audio.paused) {
       syncAudioPosition(audio, originalAudio.current);
     }
+  }
+
+  function pauseBothPlayers() {
+    if (switchingCompare.current) return;
+
+    originalAudio.current?.pause();
+    processedAudio.current?.pause();
+    dualCompareMode.current = false;
   }
 
   function switchComparison(next: 'original' | 'processed') {
@@ -420,15 +500,31 @@ export function App() {
     if (!nextAudio?.src) return;
 
     const referenceTime = previousAudio?.src ? previousAudio.currentTime : nextAudio.currentTime;
-    const nextDuration = Number.isFinite(nextAudio.duration) ? nextAudio.duration : referenceTime;
-    try {
-      nextAudio.currentTime = Math.max(0, Math.min(referenceTime, nextDuration));
-    } catch (caught) {
-      console.warn('Could not align comparison playback.', caught);
+    switchingCompare.current = true;
+
+    if (original?.src && processedTrack?.src) {
+      alignAudioTime(original, referenceTime);
+      alignAudioTime(processedTrack, referenceTime);
+      setAudibleTrack(next);
+      dualCompareMode.current = true;
+
+      void Promise.allSettled([original.play(), processedTrack.play()]).finally(() => {
+        window.setTimeout(() => {
+          switchingCompare.current = false;
+        }, 80);
+      });
+      return;
     }
+
+    alignAudioTime(nextAudio, referenceTime);
     previousAudio?.pause();
-    setActiveCompare(next);
-    void nextAudio.play().catch((caught) => console.warn('Could not switch playback.', caught));
+    setAudibleTrack(next);
+    void nextAudio
+      .play()
+      .catch((caught) => console.warn('Could not switch playback.', caught))
+      .finally(() => {
+        switchingCompare.current = false;
+      });
   }
 
   return (
@@ -743,6 +839,7 @@ export function App() {
             src={selected?.fileUrl ?? null}
             audioRef={originalAudio}
             onPlay={handleOriginalPlay}
+            onPause={pauseBothPlayers}
             onSeek={handleOriginalSeek}
             onTimeUpdate={handleOriginalTimeUpdate}
           />
@@ -753,6 +850,7 @@ export function App() {
             src={processed?.outputUrl ?? null}
             audioRef={processedAudio}
             onPlay={handleProcessedPlay}
+            onPause={pauseBothPlayers}
             onSeek={handleProcessedSeek}
             onTimeUpdate={handleProcessedTimeUpdate}
           />
