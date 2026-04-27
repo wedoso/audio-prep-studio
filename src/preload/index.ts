@@ -1,9 +1,11 @@
 import { contextBridge, ipcRenderer } from 'electron';
+import type { IpcRendererEvent } from 'electron';
 import type {
   AudioMetadata,
   DependencyStatus,
   ExportResult,
   LoudnessAnalysisResult,
+  ProcessingProgress,
   ProcessingSettings,
   ProcessResult
 } from '../main/types';
@@ -57,7 +59,12 @@ const api = {
     originalPath: string,
     settings: ProcessingSettings,
     discardSource: boolean
-  ): Promise<ExportResult> => invoke('audio:export', { sourcePath, originalPath, settings, discardSource })
+  ): Promise<ExportResult> => invoke('audio:export', { sourcePath, originalPath, settings, discardSource }),
+  onProgress: (callback: (progress: ProcessingProgress) => void): (() => void) => {
+    const listener = (_event: IpcRendererEvent, progress: ProcessingProgress) => callback(progress);
+    ipcRenderer.on('audio:progress', listener);
+    return () => ipcRenderer.removeListener('audio:progress', listener);
+  }
 };
 
 contextBridge.exposeInMainWorld('audioApp', api);

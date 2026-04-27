@@ -599,6 +599,47 @@ button:disabled {
   margin-top: 12px;
 }
 
+.progress-block {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+}
+
+.progress-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #4f5d66;
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.progress-track {
+  height: 8px;
+  overflow: hidden;
+  border: 1px solid #cddadd;
+  border-radius: 999px;
+  background: #eef3f4;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: #248173;
+  transition: width 160ms ease;
+}
+
+.success-box {
+  margin-top: 10px;
+  padding: 9px 10px;
+  border: 1px solid #b6e3ce;
+  border-radius: 7px;
+  color: #176047;
+  background: #e8f7ef;
+  font-size: 13px;
+  font-weight: 760;
+}
+
 .delivery-divider {
   margin: 14px 0 12px;
   border-top: 1px solid #e7ecee;

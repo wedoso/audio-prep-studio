@@ -15,7 +15,7 @@ import {
   toAudioUrl,
   validateAudioPath
 } from './ffmpeg';
-import type { AppErrorPayload, LoudnessAnalysisResult, ProcessingSettings } from './types';
+import type { AppErrorPayload, LoudnessAnalysisResult, ProcessingProgress, ProcessingSettings } from './types';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const { app, BrowserWindow, dialog, ipcMain, protocol } = electron;
@@ -57,6 +57,19 @@ function handleIpc<TArgs extends unknown[], TResult>(
       return { ok: false, error: serializeError(error) };
     }
   });
+}
+
+function sendProgress(
+  event: Electron.IpcMainInvokeEvent,
+  operation: ProcessingProgress['operation'],
+  percent: number,
+  message: string
+): void {
+  event.sender.send('audio:progress', {
+    operation,
+    percent: Math.round(Math.max(0, Math.min(1, percent)) * 100),
+    message
+  } satisfies ProcessingProgress);
 }
 
 function audioContentType(filePath: string): string {
@@ -264,20 +277,32 @@ handleIpc(
     analyzeLoudness(payload.filePath, payload.settings)
 );
 
-handleIpc(
+ipcMain.handle(
   'audio:process',
   async (
+    event,
     payload: {
       filePath: string;
       settings: ProcessingSettings;
     }
-  ) => {
+  ): Promise<IpcResult<Awaited<ReturnType<typeof processAudio>> & { isPreview: true }>> => {
+    try {
+      sendProgress(event, 'process', 0, 'Preparing preview');
     const previewPath = await createPreviewOutputPath(payload.filePath);
-    const result = await processAudio(payload.filePath, previewPath, payload.settings);
-    return {
-      ...result,
-      isPreview: true
-    };
+      const result = await processAudio(payload.filePath, previewPath, payload.settings, (percent, message) => {
+        sendProgress(event, 'process', percent, message);
+      });
+      sendProgress(event, 'process', 1, 'Preview ready');
+      return {
+        ok: true,
+        data: {
+          ...result,
+          isPreview: true
+        }
+      };
+    } catch (error) {
+      return { ok: false, error: serializeError(error) };
+    }
   }
 );
 
@@ -286,9 +311,10 @@ handleIpc('audio:discard-preview', async (payload: { sourcePath: string }) => {
   return null;
 });
 
-handleIpc(
+ipcMain.handle(
   'audio:export',
   async (
+    event,
     payload: {
       sourcePath: string;
       originalPath: string;
@@ -296,31 +322,44 @@ handleIpc(
       discardSource: boolean;
     }
   ) => {
-    validateAudioPath(payload.sourcePath);
+    try {
+      validateAudioPath(payload.sourcePath);
 
-    const suggestedPath = defaultOutputPath(payload.originalPath, payload.settings.outputSampleRate);
-    const saveResult = await dialog.showSaveDialog({
-      title: 'Export Prepared WAV',
-      defaultPath: suggestedPath,
-      filters: [{ name: 'WAV Audio', extensions: ['wav'] }],
-      properties: ['showOverwriteConfirmation', 'createDirectory']
-    });
+      const suggestedPath = defaultOutputPath(payload.originalPath, payload.settings.outputSampleRate);
+      const saveResult = await dialog.showSaveDialog({
+        title: 'Export Prepared WAV',
+        defaultPath: suggestedPath,
+        filters: [{ name: 'WAV Audio', extensions: ['wav'] }],
+        properties: ['showOverwriteConfirmation', 'createDirectory']
+      });
 
-    if (saveResult.canceled || !saveResult.filePath) {
-      throw new AppError('Export was canceled.');
-    }
-
-    const result = await exportAudioFile(payload.sourcePath, saveResult.filePath, payload.settings.outputSampleRate);
-
-    if (payload.discardSource) {
-      try {
-        await discardPreviewFile(payload.sourcePath);
-      } catch (error) {
-        console.warn(`Could not remove preview file ${payload.sourcePath}: ${String(error)}`);
+      if (saveResult.canceled || !saveResult.filePath) {
+        throw new AppError('Export was canceled.');
       }
-    }
 
-    return result;
+      sendProgress(event, 'export', 0, 'Preparing export');
+      const result = await exportAudioFile(
+        payload.sourcePath,
+        saveResult.filePath,
+        payload.settings.outputSampleRate,
+        (percent, message) => {
+          sendProgress(event, 'export', percent, message);
+        }
+      );
+
+      if (payload.discardSource) {
+        try {
+          await discardPreviewFile(payload.sourcePath);
+        } catch (error) {
+          console.warn(`Could not remove preview file ${payload.sourcePath}: ${String(error)}`);
+        }
+      }
+
+      sendProgress(event, 'export', 1, 'Export complete');
+      return { ok: true, data: result };
+    } catch (error) {
+      return { ok: false, error: serializeError(error) };
+    }
   }
 );
 

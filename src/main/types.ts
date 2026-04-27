@@ -47,6 +47,12 @@ export type ProcessResult = {
 
 export type ExportResult = ProcessResult;
 
+export type ProcessingProgress = {
+  operation: "process" | "export";
+  percent: number;
+  message: string;
+};
+
 export type DependencyStatus = {
   ffmpeg: boolean;
   ffprobe: boolean;

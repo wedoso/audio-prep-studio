@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { access, constants, stat } from 'node:fs/promises';
 import path from 'node:path';
 import type {
@@ -25,6 +25,8 @@ type CommandResult = {
   stderr: string;
 };
 
+type ProgressReporter = (percent: number) => void;
+
 export class AppError extends Error {
   details?: string;
 
@@ -43,6 +45,67 @@ function runCommand(command: string, args: string[]): Promise<CommandResult> {
         return;
       }
 
+      resolve({ stdout, stderr });
+    });
+  });
+}
+
+function progressArgs(args: string[]): string[] {
+  if (args[0] === '-hide_banner') {
+    return ['-hide_banner', '-nostats', '-progress', 'pipe:2', ...args.slice(1)];
+  }
+  return ['-nostats', '-progress', 'pipe:2', ...args];
+}
+
+function runCommandWithProgress(
+  command: string,
+  args: string[],
+  durationSeconds: number | null,
+  onProgress?: ProgressReporter
+): Promise<CommandResult> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, progressArgs(args), { stdio: ['ignore', 'pipe', 'pipe'] });
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let stderrBuffer = '';
+
+    child.stdout.on('data', (chunk: Buffer) => {
+      stdoutChunks.push(chunk);
+    });
+
+    child.stderr.on('data', (chunk: Buffer) => {
+      stderrChunks.push(chunk);
+      stderrBuffer += chunk.toString('utf8');
+      const lines = stderrBuffer.split(/\r?\n/);
+      stderrBuffer = lines.pop() ?? '';
+
+      for (const line of lines) {
+        const [key, value] = line.split('=');
+        if (key === 'out_time_ms' && durationSeconds && durationSeconds > 0) {
+          const elapsedSeconds = Number(value) / 1_000_000;
+          if (Number.isFinite(elapsedSeconds)) {
+            onProgress?.(Math.min(0.99, Math.max(0, elapsedSeconds / durationSeconds)));
+          }
+        } else if (key === 'progress' && value === 'end') {
+          onProgress?.(1);
+        }
+      }
+    });
+
+    child.on('error', (error) => {
+      reject(new AppError(`${command} failed.`, error.message));
+    });
+
+    child.on('close', (code) => {
+      const stdout = Buffer.concat(stdoutChunks).toString('utf8');
+      const stderr = Buffer.concat(stderrChunks).toString('utf8');
+
+      if (code !== 0) {
+        reject(new AppError(`${command} failed.`, `${stderr || stdout || `Exited with code ${code}`}`));
+        return;
+      }
+
+      onProgress?.(1);
       resolve({ stdout, stderr });
     });
   });
@@ -338,15 +401,19 @@ export function defaultOutputPath(inputPath: string, sampleRate: 48000 | 96000):
 export async function processAudio(
   filePath: string,
   outputPath: string,
-  settings: ProcessingSettings
+  settings: ProcessingSettings,
+  onProgress?: (percent: number, message: string) => void
 ): Promise<ProcessResult> {
   validateAudioPath(filePath);
+  const inputMetadata = await readMetadata(filePath);
 
   let analysis: LoudnessAnalysisResult | null = null;
   let filters = buildPreprocessingFilters(settings);
 
   if (settings.loudnessEnabled) {
+    onProgress?.(0.05, 'Analyzing loudness');
     analysis = await analyzeLoudness(filePath, settings);
+    onProgress?.(0.4, 'Applying loudness match');
     filters = [
       buildFilterChain(settings, {
         includeLoudnormPrint: false,
@@ -369,7 +436,11 @@ export async function processAudio(
   }
 
   try {
-    await runCommand('ffmpeg', args);
+    const start = settings.loudnessEnabled ? 0.4 : 0;
+    const span = settings.loudnessEnabled ? 0.6 : 1;
+    await runCommandWithProgress('ffmpeg', args, inputMetadata.durationSeconds, (percent) => {
+      onProgress?.(start + percent * span, 'Rendering preview');
+    });
   } catch (error) {
     if (error instanceof AppError) {
       throw new AppError('Processing command failed.', error.details);
@@ -402,9 +473,11 @@ export async function processAudio(
 export async function exportAudioFile(
   sourcePath: string,
   outputPath: string,
-  sampleRate: 48000 | 96000
+  sampleRate: 48000 | 96000,
+  onProgress?: (percent: number, message: string) => void
 ): Promise<ProcessResult> {
   validateAudioPath(sourcePath);
+  const sourceMetadata = await readMetadata(sourcePath);
 
   const args = [
     '-hide_banner',
@@ -419,7 +492,9 @@ export async function exportAudioFile(
   ];
 
   try {
-    await runCommand('ffmpeg', args);
+    await runCommandWithProgress('ffmpeg', args, sourceMetadata.durationSeconds, (percent) => {
+      onProgress?.(percent, 'Writing export');
+    });
   } catch (error) {
     if (error instanceof AppError) {
       throw new AppError('Export conversion failed.', error.details);

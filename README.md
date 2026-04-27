@@ -47,6 +47,8 @@ npm run build
 - Final export format selection after preview approval
 - 48 kHz / 24-bit WAV and 96 kHz / 24-bit WAV export from the approved preview
 - Save dialog with overwrite confirmation for approved exports
+- FFmpeg progress indicator during preview rendering and export
+- Export success confirmation after the WAV is saved
 - Automatic cleanup of temporary preview WAV files on replacement, export, startup, and app quit
 
 ## Workflow

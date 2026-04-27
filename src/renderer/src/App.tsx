@@ -14,6 +14,7 @@ import type {
   AudioMetadata,
   DependencyStatus,
   LoudnessAnalysisResult,
+  ProcessingProgress,
   ProcessingSettings,
   ProcessResult
 } from '../../main/types';
@@ -162,6 +163,7 @@ export function App() {
   const [activeCompare, setActiveCompare] = useState<'original' | 'processed'>('original');
   const [noiseFloorInput, setNoiseFloorInput] = useState(String(DEFAULT_SETTINGS.denoiseNoiseFloor));
   const [busy, setBusy] = useState<BusyState>('idle');
+  const [progress, setProgress] = useState<ProcessingProgress | null>(null);
   const [error, setError] = useState<{ message: string; details?: string } | null>(null);
   const playbackAudio = useRef<HTMLAudioElement | null>(null);
   const processedRef = useRef<ProcessResult | null>(null);
@@ -173,6 +175,8 @@ export function App() {
       .then(setDeps)
       .catch((caught: Error) => setError({ message: 'Could not check FFmpeg dependencies.', details: caught.message }));
   }, []);
+
+  useEffect(() => window.audioApp.onProgress(setProgress), []);
 
   useEffect(() => {
     processedRef.current = processed;
@@ -248,6 +252,7 @@ export function App() {
   async function chooseFile() {
     setBusy('loading-file');
     setError(null);
+    setProgress(null);
 
     try {
       const result = await window.audioApp.chooseAudioFile();
@@ -258,6 +263,7 @@ export function App() {
         setAnalysis(null);
         setProcessed(null);
         setExportedPath(null);
+        setProgress(null);
       }
     } catch (caught) {
       setError({
@@ -274,6 +280,7 @@ export function App() {
 
     setBusy('processing');
     setError(null);
+    setProgress({ operation: 'process', percent: 0, message: 'Preparing preview' });
     await discardCurrentPreview();
     setProcessed(null);
     setExportedPath(null);
@@ -282,6 +289,7 @@ export function App() {
       const result = await window.audioApp.processAudio(selected.metadata.filePath, settings);
       setProcessed(result);
       setAnalysis(result.analysis ?? null);
+      setProgress({ operation: 'process', percent: 100, message: 'Preview ready' });
     } catch (caught) {
       setError({
         message: caught instanceof Error ? caught.message : 'Processing failed.',
@@ -297,6 +305,7 @@ export function App() {
 
     setBusy('exporting');
     setError(null);
+    setProgress({ operation: 'export', percent: 0, message: 'Preparing export' });
 
     try {
       const sourcePath = processed?.isPreview ? processed.outputPath : selected.metadata.filePath;
@@ -309,6 +318,7 @@ export function App() {
       setExportedPath(result.outputPath);
       setProcessed(result);
       setActiveCompare('processed');
+      setProgress({ operation: 'export', percent: 100, message: 'Export complete' });
     } catch (caught) {
       setError({
         message: caught instanceof Error ? caught.message : 'Export failed.',
@@ -326,11 +336,13 @@ export function App() {
     setAnalysis(null);
     setProcessed(null);
     setExportedPath(null);
+    setProgress(null);
   }
 
   function updateSampleRate(outputSampleRate: 48000 | 96000) {
     setSettings((current) => ({ ...current, outputSampleRate }));
     setExportedPath(null);
+    setProgress(null);
   }
 
   function updateProcessingSetting(
@@ -355,6 +367,7 @@ export function App() {
     setAnalysis(null);
     setProcessed(null);
     setExportedPath(null);
+    setProgress(null);
   }
 
   function updateNoiseFloorInput(value: string) {
@@ -687,6 +700,17 @@ export function App() {
                 <AudioWaveform size={18} />
                 {busy === 'processing' ? 'Processing...' : 'Create Preview'}
               </button>
+              {progress?.operation === 'process' ? (
+                <div className="progress-block" role="status" aria-live="polite">
+                  <div className="progress-header">
+                    <span>{progress.message}</span>
+                    <span>{progress.percent}%</span>
+                  </div>
+                  <div className="progress-track">
+                    <div className="progress-fill" style={{ width: `${progress.percent}%` }} />
+                  </div>
+                </div>
+              ) : null}
               <div className="path-line compact-path">{processed?.outputPath ?? 'No preview file yet'}</div>
               {processed ? (
                 <dl className="metadata-grid compact">
@@ -734,6 +758,22 @@ export function App() {
             <Save size={18} />
             {busy === 'exporting' ? 'Exporting...' : `Export ${settings.outputSampleRate / 1000} kHz WAV`}
           </button>
+          {progress?.operation === 'export' ? (
+            <div className="progress-block" role="status" aria-live="polite">
+              <div className="progress-header">
+                <span>{progress.message}</span>
+                <span>{progress.percent}%</span>
+              </div>
+              <div className="progress-track">
+                <div className="progress-fill" style={{ width: `${progress.percent}%` }} />
+              </div>
+            </div>
+          ) : null}
+          {exportedPath ? (
+            <div className="success-box" role="status">
+              Export complete. The WAV was saved successfully.
+            </div>
+          ) : null}
           <div className="path-line compact-path">{exportedPath ?? 'No exported file yet'}</div>
         </section>
       </div>
