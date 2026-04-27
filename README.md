@@ -53,9 +53,8 @@ npm run build
 
 1. Choose a local `.wav` or `.mp3` file.
 2. Review detected metadata such as codec, sample rate, channels, bit depth, and duration.
-3. Enable the processing modules you want to hear: denoise, de-esser, and/or loudness matching.
-4. Tune denoise, de-esser, and loudness target settings.
-5. Create a processing preview WAV. If loudness matching is enabled, the app measures loudness first and applies the matched result to the preview.
-6. Compare original and preview playback from synced positions.
-7. Choose the final export preset: `48 kHz / 24-bit WAV` or `96 kHz / 24-bit WAV`.
-8. Export the approved preview. The app converts it to the selected delivery format and cleans temporary preview files.
+3. Enable only the processing modules you want to hear: denoise, de-esser, and/or loudness matching.
+4. If processing is enabled, tune the settings, create a preview WAV, and compare it against the original from synced positions.
+5. If no processing is enabled, skip preview and export directly from the input file.
+6. Choose the final export preset: `48 kHz / 24-bit WAV` or `96 kHz / 24-bit WAV`.
+7. Export the approved preview, or export the input directly when processing is bypassed. The app converts the source to the selected delivery format and cleans temporary preview files when they exist.

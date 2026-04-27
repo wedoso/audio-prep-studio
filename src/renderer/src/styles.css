@@ -591,6 +591,14 @@ button:disabled {
   gap: 8px;
 }
 
+.full-width-action {
+  width: 100%;
+}
+
+.export-action {
+  margin-top: 12px;
+}
+
 .delivery-divider {
   margin: 14px 0 12px;
   border-top: 1px solid #e7ecee;

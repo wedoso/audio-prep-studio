@@ -52,8 +52,12 @@ const api = {
     settings: ProcessingSettings
   ): Promise<ProcessResult> => invoke('audio:process', { filePath, settings }),
   discardPreview: (sourcePath: string): Promise<null> => invoke('audio:discard-preview', { sourcePath }),
-  exportAudio: (sourcePath: string, originalPath: string, settings: ProcessingSettings): Promise<ExportResult> =>
-    invoke('audio:export', { sourcePath, originalPath, settings })
+  exportAudio: (
+    sourcePath: string,
+    originalPath: string,
+    settings: ProcessingSettings,
+    discardSource: boolean
+  ): Promise<ExportResult> => invoke('audio:export', { sourcePath, originalPath, settings, discardSource })
 };
 
 contextBridge.exposeInMainWorld('audioApp', api);

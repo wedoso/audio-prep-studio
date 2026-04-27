@@ -293,6 +293,7 @@ handleIpc(
       sourcePath: string;
       originalPath: string;
       settings: ProcessingSettings;
+      discardSource: boolean;
     }
   ) => {
     validateAudioPath(payload.sourcePath);
@@ -311,10 +312,12 @@ handleIpc(
 
     const result = await exportAudioFile(payload.sourcePath, saveResult.filePath, payload.settings.outputSampleRate);
 
-    try {
-      await discardPreviewFile(payload.sourcePath);
-    } catch (error) {
-      console.warn(`Could not remove preview file ${payload.sourcePath}: ${String(error)}`);
+    if (payload.discardSource) {
+      try {
+        await discardPreviewFile(payload.sourcePath);
+      } catch (error) {
+        console.warn(`Could not remove preview file ${payload.sourcePath}: ${String(error)}`);
+      }
     }
 
     return result;

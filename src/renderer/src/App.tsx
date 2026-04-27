@@ -29,7 +29,7 @@ const DEFAULT_SETTINGS: ProcessingSettings = {
   targetLUFS: -14,
   truePeak: -1,
   lra: 7,
-  loudnessEnabled: true,
+  loudnessEnabled: false,
   outputSampleRate: 48000,
   denoiseEnabled: false,
   denoiseFftEnabled: true,
@@ -212,8 +212,10 @@ export function App() {
     (!/^-?\d+$/.test(noiseFloorInput) ||
       noiseFloorValue < AFFTDN_NOISE_FLOOR_MIN ||
       noiseFloorValue > AFFTDN_NOISE_FLOOR_MAX);
-  const canProcess = dependenciesReady && selected && busy === 'idle' && !noiseFloorInvalid;
-  const canExport = dependenciesReady && selected && processed?.isPreview && busy === 'idle' && !noiseFloorInvalid;
+  const hasProcessingEnabled = settings.denoiseEnabled || settings.deEsserEnabled || settings.loudnessEnabled;
+  const hasApprovedSource = !hasProcessingEnabled || Boolean(processed?.isPreview);
+  const canProcess = dependenciesReady && selected && hasProcessingEnabled && busy === 'idle' && !noiseFloorInvalid;
+  const canExport = dependenciesReady && selected && hasApprovedSource && busy === 'idle' && !noiseFloorInvalid;
   const busyLabel =
     busy === 'loading-file'
       ? 'Loading file'
@@ -222,7 +224,9 @@ export function App() {
         : busy === 'processing'
           ? 'Processing preview'
           : busy === 'exporting'
-            ? 'Exporting approved preview'
+            ? hasProcessingEnabled
+              ? 'Exporting approved preview'
+              : 'Exporting input file'
             : 'Ready';
   const processedPlaybackTag = exportedPath ? 'Exported WAV' : processed?.isPreview ? 'Preview result' : 'No result';
   const processedPlaybackDetail = exportedPath
@@ -298,13 +302,19 @@ export function App() {
   }
 
   async function exportProcessed() {
-    if (!selected || !processed) return;
+    if (!selected || !hasApprovedSource) return;
 
     setBusy('exporting');
     setError(null);
 
     try {
-      const result = await window.audioApp.exportAudio(processed.outputPath, selected.metadata.filePath, settings);
+      const sourcePath = processed?.isPreview ? processed.outputPath : selected.metadata.filePath;
+      const result = await window.audioApp.exportAudio(
+        sourcePath,
+        selected.metadata.filePath,
+        settings,
+        Boolean(processed?.isPreview)
+      );
       setExportedPath(result.outputPath);
       setProcessed(result);
     } catch (caught) {
@@ -554,8 +564,16 @@ export function App() {
             selected && !processed && (settings.denoiseEnabled || settings.deEsserEnabled || settings.loudnessEnabled)
           )}
         />
-        <StepPill label="Preview" done={Boolean(processed)} active={Boolean(selected && !processed)} />
-        <StepPill label="Export" done={Boolean(exportedPath)} active={Boolean(processed && !exportedPath)} />
+        <StepPill
+          label="Preview"
+          done={Boolean(processed) || Boolean(selected && !hasProcessingEnabled)}
+          active={Boolean(selected && hasProcessingEnabled && !processed)}
+        />
+        <StepPill
+          label="Export"
+          done={Boolean(exportedPath)}
+          active={Boolean(selected && hasApprovedSource && !exportedPath)}
+        />
       </section>
 
       {!dependenciesReady ? (
@@ -791,27 +809,25 @@ export function App() {
               {exportedPath ? 'Exported' : processed ? 'Preview ready' : 'Pending'}
             </span>
           </div>
-          <div className="delivery-actions">
-            <button className="primary-action" onClick={process} disabled={!canProcess}>
-              <AudioWaveform size={18} />
-              {busy === 'processing' ? 'Processing...' : 'Create Preview'}
-            </button>
-            <button className="secondary-action" onClick={exportProcessed} disabled={!canExport}>
-              <Save size={18} />
-              {busy === 'exporting' ? 'Exporting...' : 'Export WAV'}
-            </button>
-          </div>
-          <div className="path-line compact-path">{processed?.outputPath ?? 'No preview file yet'}</div>
-          {processed ? (
-            <dl className="metadata-grid compact">
-              <Field label="Output codec" value={processed.metadata.codecName} />
-              <Field label="Preview sample rate" value={processed.metadata.sampleRate ? `${processed.metadata.sampleRate} Hz` : null} help="The temporary preview keeps the processed sound for listening. Final sample rate is selected during export." />
-              <Field label="Preview bit depth" value={processed.metadata.bitsPerSample ? `${processed.metadata.bitsPerSample}-bit` : null} help="The preview is rendered as 24-bit WAV for clean listening before export." />
-              <Field label="Output size" value={formatBytes(processed.metadata.fileSizeBytes)} />
-              <Field label="Loudness" value={analysis ? `${analysis.input_i} LUFS measured` : 'Bypassed'} help="When loudness matching is enabled, this is the first-pass loudness measurement used to create the preview." />
-            </dl>
+          {hasProcessingEnabled ? (
+            <>
+              <button className="primary-action full-width-action" onClick={process} disabled={!canProcess}>
+                <AudioWaveform size={18} />
+                {busy === 'processing' ? 'Processing...' : 'Create Preview'}
+              </button>
+              <div className="path-line compact-path">{processed?.outputPath ?? 'No preview file yet'}</div>
+              {processed ? (
+                <dl className="metadata-grid compact">
+                  <Field label="Output codec" value={processed.metadata.codecName} />
+                  <Field label="Preview sample rate" value={processed.metadata.sampleRate ? `${processed.metadata.sampleRate} Hz` : null} help="The temporary preview keeps the processed sound for listening. Final sample rate is selected during export." />
+                  <Field label="Preview bit depth" value={processed.metadata.bitsPerSample ? `${processed.metadata.bitsPerSample}-bit` : null} help="The preview is rendered as 24-bit WAV for clean listening before export." />
+                  <Field label="Output size" value={formatBytes(processed.metadata.fileSizeBytes)} />
+                  <Field label="Loudness" value={analysis ? `${analysis.input_i} LUFS measured` : 'Bypassed'} help="When loudness matching is enabled, this is the first-pass loudness measurement used to create the preview." />
+                </dl>
+              ) : null}
+              <div className="delivery-divider" />
+            </>
           ) : null}
-          <div className="delivery-divider" />
           <div className="segmented">
             <button
               className={settings.outputSampleRate === 48000 ? 'selected' : ''}
@@ -833,9 +849,19 @@ export function App() {
             <span>{settings.outputSampleRate / 1000} kHz / 24-bit PCM WAV</span>
           </div>
           <div className="format-note">
-            <TermLabel help="Export writes the approved preview to the selected sample rate and 24-bit WAV. Processing decisions should be previewed before this step.">Approved preview</TermLabel>
-            <span>{processed ? 'Ready for format conversion' : 'Create a preview first'}</span>
+            <TermLabel help="When processing is enabled, export writes the approved preview. When processing is off, export converts the input file directly.">Export source</TermLabel>
+            <span>
+              {processed
+                ? 'Approved preview'
+                : hasProcessingEnabled
+                  ? 'Create a preview first'
+                  : 'Input file, no processing'}
+            </span>
           </div>
+          <button className="primary-action full-width-action export-action" onClick={exportProcessed} disabled={!canExport}>
+            <Save size={18} />
+            {busy === 'exporting' ? 'Exporting...' : `Export ${settings.outputSampleRate / 1000} kHz WAV`}
+          </button>
           <div className="path-line compact-path">{exportedPath ?? 'No exported file yet'}</div>
         </section>
       </div>
