@@ -17,6 +17,9 @@ const REQUIRED_LOUDNORM_FIELDS: Array<keyof LoudnessAnalysisResult> = [
   'target_offset'
 ];
 
+const AFFTDN_NOISE_FLOOR_MIN = -80;
+const AFFTDN_NOISE_FLOOR_MAX = -20;
+
 type CommandResult = {
   stdout: string;
   stderr: string;
@@ -180,7 +183,18 @@ export async function analyzeLoudness(
   filePath: string,
   settings: Pick<
     ProcessingSettings,
-    'targetLUFS' | 'truePeak' | 'lra' | 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'
+    | 'targetLUFS'
+    | 'truePeak'
+    | 'lra'
+    | 'denoiseEnabled'
+    | 'denoiseFftEnabled'
+    | 'denoiseNoiseFloor'
+    | 'denoiseHighpassEnabled'
+    | 'denoiseHighpassHz'
+    | 'denoiseLowpassEnabled'
+    | 'denoiseLowpassHz'
+    | 'deEsserEnabled'
+    | 'deEsserPreset'
   >
 ): Promise<LoudnessAnalysisResult> {
   validateAudioPath(filePath);
@@ -201,11 +215,41 @@ export async function analyzeLoudness(
   }
 }
 
-function buildPreprocessingFilters(settings: Pick<ProcessingSettings, 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'>): string[] {
+function buildPreprocessingFilters(
+  settings: Pick<
+    ProcessingSettings,
+    | 'denoiseEnabled'
+    | 'denoiseFftEnabled'
+    | 'denoiseNoiseFloor'
+    | 'denoiseHighpassEnabled'
+    | 'denoiseHighpassHz'
+    | 'denoiseLowpassEnabled'
+    | 'denoiseLowpassHz'
+    | 'deEsserEnabled'
+    | 'deEsserPreset'
+  >
+): string[] {
   const filters: string[] = [];
 
   if (settings.denoiseEnabled) {
-    filters.push('highpass=f=80');
+    if (settings.denoiseFftEnabled) {
+      if (
+        settings.denoiseNoiseFloor < AFFTDN_NOISE_FLOOR_MIN ||
+        settings.denoiseNoiseFloor > AFFTDN_NOISE_FLOOR_MAX
+      ) {
+        throw new AppError(
+          'Invalid FFT denoise noise floor.',
+          `FFmpeg afftdn requires noise floor between ${AFFTDN_NOISE_FLOOR_MIN} and ${AFFTDN_NOISE_FLOOR_MAX} dB. Current value: ${settings.denoiseNoiseFloor}.`
+        );
+      }
+      filters.push(`afftdn=nf=${settings.denoiseNoiseFloor}`);
+    }
+    if (settings.denoiseHighpassEnabled) {
+      filters.push(`highpass=f=${settings.denoiseHighpassHz}`);
+    }
+    if (settings.denoiseLowpassEnabled) {
+      filters.push(`lowpass=f=${settings.denoiseLowpassHz}`);
+    }
   }
 
   if (settings.deEsserEnabled) {
@@ -254,7 +298,18 @@ function buildSecondPassLoudnormFilter(
 function buildFilterChain(
   settings: Pick<
     ProcessingSettings,
-    'targetLUFS' | 'truePeak' | 'lra' | 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'
+    | 'targetLUFS'
+    | 'truePeak'
+    | 'lra'
+    | 'denoiseEnabled'
+    | 'denoiseFftEnabled'
+    | 'denoiseNoiseFloor'
+    | 'denoiseHighpassEnabled'
+    | 'denoiseHighpassHz'
+    | 'denoiseLowpassEnabled'
+    | 'denoiseLowpassHz'
+    | 'deEsserEnabled'
+    | 'deEsserPreset'
   >,
   options:
     | {
@@ -283,7 +338,18 @@ export function defaultOutputPath(inputPath: string, sampleRate: 48000 | 96000):
 export async function processAudio(
   filePath: string,
   outputPath: string,
-  settings: Pick<ProcessingSettings, 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'>
+  settings: Pick<
+    ProcessingSettings,
+    | 'denoiseEnabled'
+    | 'denoiseFftEnabled'
+    | 'denoiseNoiseFloor'
+    | 'denoiseHighpassEnabled'
+    | 'denoiseHighpassHz'
+    | 'denoiseLowpassEnabled'
+    | 'denoiseLowpassHz'
+    | 'deEsserEnabled'
+    | 'deEsserPreset'
+  >
 ): Promise<ProcessResult> {
   validateAudioPath(filePath);
 

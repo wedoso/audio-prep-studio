@@ -34,7 +34,7 @@ npm run build
 - WAV/MP3 file picker with validation
 - Metadata inspection through `ffprobe`
 - FFmpeg dependency check at startup
-- Optional light denoise using an 80 Hz high-pass filter
+- Optional denoise using independently toggleable FFmpeg `afftdn`, high-pass, and low-pass filters
 - Optional de-esser with light, medium, and aggressive presets
 - Editable loudness target controls for LUFS, true peak, and LRA
 - Automatic first-pass `loudnorm` analysis during final export
@@ -43,6 +43,7 @@ npm run build
 - Automatic second-pass loudness matching during final export
 - Clear playback tags for original, preview, and exported audio
 - Synced A/B playback positions for easier comparison
+- A/B switch for quickly toggling playback between original and processed audio
 - Seekable local playback through an Electron audio protocol with byte-range support
 - Final export format selection after preview approval
 - 48 kHz / 24-bit WAV and 96 kHz / 24-bit WAV export after preview approval
@@ -53,7 +54,7 @@ npm run build
 
 1. Choose a local `.wav` or `.mp3` file.
 2. Review detected metadata such as codec, sample rate, channels, bit depth, and duration.
-3. Optionally enable light denoise and/or de-esser processing.
+3. Optionally enable denoise and/or de-esser processing. Denoise supports noise floor, high-pass, and low-pass controls.
 4. Set final loudness targets.
 5. Create a cleanup preview WAV without running loudness matching.
 6. Compare original and preview playback from synced positions.

@@ -26,6 +26,12 @@ export type ProcessingSettings = {
   lra: number;
   outputSampleRate: 48000 | 96000;
   denoiseEnabled: boolean;
+  denoiseFftEnabled: boolean;
+  denoiseNoiseFloor: number;
+  denoiseHighpassEnabled: boolean;
+  denoiseHighpassHz: number;
+  denoiseLowpassEnabled: boolean;
+  denoiseLowpassHz: number;
   deEsserEnabled: boolean;
   deEsserPreset: "light" | "medium" | "aggressive";
 };

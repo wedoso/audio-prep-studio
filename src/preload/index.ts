@@ -33,7 +33,18 @@ const api = {
     filePath: string,
     settings: Pick<
       ProcessingSettings,
-      'targetLUFS' | 'truePeak' | 'lra' | 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'
+      | 'targetLUFS'
+      | 'truePeak'
+      | 'lra'
+      | 'denoiseEnabled'
+      | 'denoiseFftEnabled'
+      | 'denoiseNoiseFloor'
+      | 'denoiseHighpassEnabled'
+      | 'denoiseHighpassHz'
+      | 'denoiseLowpassEnabled'
+      | 'denoiseLowpassHz'
+      | 'deEsserEnabled'
+      | 'deEsserPreset'
     >
   ): Promise<LoudnessAnalysisResult> => invoke('audio:analyze', { filePath, settings }),
   processAudio: (

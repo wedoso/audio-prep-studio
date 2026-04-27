@@ -31,9 +31,18 @@ const DEFAULT_SETTINGS: ProcessingSettings = {
   lra: 7,
   outputSampleRate: 48000,
   denoiseEnabled: false,
+  denoiseFftEnabled: true,
+  denoiseNoiseFloor: -25,
+  denoiseHighpassEnabled: true,
+  denoiseHighpassHz: 80,
+  denoiseLowpassEnabled: true,
+  denoiseLowpassHz: 14000,
   deEsserEnabled: false,
   deEsserPreset: 'light'
 };
+
+const AFFTDN_NOISE_FLOOR_MIN = -80;
+const AFFTDN_NOISE_FLOOR_MAX = -20;
 
 function formatDuration(seconds: number | null): string {
   if (seconds === null) return 'N/A';
@@ -155,6 +164,8 @@ export function App() {
   const [analysis, setAnalysis] = useState<LoudnessAnalysisResult | null>(null);
   const [processed, setProcessed] = useState<ProcessResult | null>(null);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
+  const [activeCompare, setActiveCompare] = useState<'original' | 'processed'>('original');
+  const [noiseFloorInput, setNoiseFloorInput] = useState(String(DEFAULT_SETTINGS.denoiseNoiseFloor));
   const [busy, setBusy] = useState<BusyState>('idle');
   const [error, setError] = useState<{ message: string; details?: string } | null>(null);
   const originalAudio = useRef<HTMLAudioElement | null>(null);
@@ -174,6 +185,10 @@ export function App() {
   }, [processed]);
 
   useEffect(() => {
+    setNoiseFloorInput(String(settings.denoiseNoiseFloor));
+  }, [settings.denoiseNoiseFloor]);
+
+  useEffect(() => {
     return () => {
       const current = processedRef.current;
       if (current?.isPreview) {
@@ -183,8 +198,15 @@ export function App() {
   }, []);
 
   const dependenciesReady = Boolean(deps?.ffmpeg && deps?.ffprobe);
-  const canProcess = dependenciesReady && selected && busy === 'idle';
-  const canExport = dependenciesReady && selected && processed?.isPreview && busy === 'idle';
+  const noiseFloorValue = Number(noiseFloorInput);
+  const noiseFloorInvalid =
+    settings.denoiseEnabled &&
+    settings.denoiseFftEnabled &&
+    (!/^-?\d+$/.test(noiseFloorInput) ||
+      noiseFloorValue < AFFTDN_NOISE_FLOOR_MIN ||
+      noiseFloorValue > AFFTDN_NOISE_FLOOR_MAX);
+  const canProcess = dependenciesReady && selected && busy === 'idle' && !noiseFloorInvalid;
+  const canExport = dependenciesReady && selected && processed?.isPreview && busy === 'idle' && !noiseFloorInvalid;
   const busyLabel =
     busy === 'loading-file'
       ? 'Loading file'
@@ -295,13 +317,46 @@ export function App() {
   }
 
   function updateProcessingSetting(
-    patch: Partial<Pick<ProcessingSettings, 'denoiseEnabled' | 'deEsserEnabled' | 'deEsserPreset'>>
+    patch: Partial<
+      Pick<
+        ProcessingSettings,
+        | 'denoiseEnabled'
+        | 'denoiseFftEnabled'
+        | 'denoiseNoiseFloor'
+        | 'denoiseHighpassEnabled'
+        | 'denoiseHighpassHz'
+        | 'denoiseLowpassEnabled'
+        | 'denoiseLowpassHz'
+        | 'deEsserEnabled'
+        | 'deEsserPreset'
+      >
+    >
   ) {
     void discardCurrentPreview();
     setSettings((current) => ({ ...current, ...patch }));
     setAnalysis(null);
     setProcessed(null);
     setExportedPath(null);
+  }
+
+  function updateNoiseFloorInput(value: string) {
+    setNoiseFloorInput(value);
+
+    const nextValue = Number(value);
+    if (/^-?\d+$/.test(value) && nextValue >= AFFTDN_NOISE_FLOOR_MIN && nextValue <= AFFTDN_NOISE_FLOOR_MAX) {
+      updateProcessingSetting({ denoiseNoiseFloor: nextValue });
+    }
+  }
+
+  function commitNoiseFloorInput() {
+    const nextValue = Number(noiseFloorInput);
+    if (
+      !/^-?\d+$/.test(noiseFloorInput) ||
+      nextValue < AFFTDN_NOISE_FLOOR_MIN ||
+      nextValue > AFFTDN_NOISE_FLOOR_MAX
+    ) {
+      setNoiseFloorInput(String(settings.denoiseNoiseFloor));
+    }
   }
 
   function syncAudioPosition(source: HTMLAudioElement, target: HTMLAudioElement | null) {
@@ -325,11 +380,13 @@ export function App() {
   }
 
   function handleOriginalPlay(audio: HTMLAudioElement) {
+    setActiveCompare('original');
     syncAudioPosition(audio, processedAudio.current);
     processedAudio.current?.pause();
   }
 
   function handleProcessedPlay(audio: HTMLAudioElement) {
+    setActiveCompare('processed');
     syncAudioPosition(audio, originalAudio.current);
     originalAudio.current?.pause();
   }
@@ -352,6 +409,26 @@ export function App() {
     if (!audio.paused) {
       syncAudioPosition(audio, originalAudio.current);
     }
+  }
+
+  function switchComparison(next: 'original' | 'processed') {
+    const original = originalAudio.current;
+    const processedTrack = processedAudio.current;
+    const nextAudio = next === 'original' ? original : processedTrack;
+    const previousAudio = next === 'original' ? processedTrack : original;
+
+    if (!nextAudio?.src) return;
+
+    const referenceTime = previousAudio?.src ? previousAudio.currentTime : nextAudio.currentTime;
+    const nextDuration = Number.isFinite(nextAudio.duration) ? nextAudio.duration : referenceTime;
+    try {
+      nextAudio.currentTime = Math.max(0, Math.min(referenceTime, nextDuration));
+    } catch (caught) {
+      console.warn('Could not align comparison playback.', caught);
+    }
+    previousAudio?.pause();
+    setActiveCompare(next);
+    void nextAudio.play().catch((caught) => console.warn('Could not switch playback.', caught));
   }
 
   return (
@@ -463,9 +540,9 @@ export function App() {
               <span>
                 <strong>
                   Light denoise
-                  <Help text="Applies an 80 Hz high-pass filter. It reduces low rumble and electrical hum, but too much low-cut can thin out bass-heavy material." />
+                  <Help text="Applies FFT noise reduction, an 80 Hz high-pass filter, and a 14 kHz low-pass filter by default. It can reduce hiss, rumble, and harsh upper noise, but stronger settings may dull the track." />
                 </strong>
-                <small>High-pass filter at 80 Hz</small>
+                <small>FFT denoise, high-pass, and low-pass cleanup</small>
               </span>
             </label>
             <label className="toggle-row">
@@ -481,6 +558,70 @@ export function App() {
                 </strong>
                 <small>Reduces harsh sibilance around 6.2 kHz and 9 kHz</small>
               </span>
+            </label>
+          </div>
+          <div className="number-row denoise-controls">
+            <label>
+              <TermLabel help="Noise floor for FFmpeg afftdn. Valid range is -80 to -20 dB. More negative values are lighter; values closer to -20 remove more noise but can create artifacts.">Noise floor</TermLabel>
+              <label className="mini-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.denoiseFftEnabled}
+                  disabled={!settings.denoiseEnabled}
+                  onChange={(event) => updateProcessingSetting({ denoiseFftEnabled: event.target.checked })}
+                />
+                FFT denoise
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                className={noiseFloorInvalid ? 'invalid-input' : ''}
+                value={noiseFloorInput}
+                disabled={!settings.denoiseEnabled || !settings.denoiseFftEnabled}
+                onChange={(event) => updateNoiseFloorInput(event.target.value)}
+                onBlur={commitNoiseFloorInput}
+              />
+              {noiseFloorInvalid ? <small className="field-warning">Use -80 to -20 dB</small> : null}
+            </label>
+            <label>
+              <TermLabel help="Removes low-frequency rumble below this frequency. Raising it cleans more low end but may thin bass or kick.">High-pass Hz</TermLabel>
+              <label className="mini-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.denoiseHighpassEnabled}
+                  disabled={!settings.denoiseEnabled}
+                  onChange={(event) => updateProcessingSetting({ denoiseHighpassEnabled: event.target.checked })}
+                />
+                High-pass
+              </label>
+              <input
+                type="number"
+                step="5"
+                min="20"
+                value={settings.denoiseHighpassHz}
+                disabled={!settings.denoiseEnabled || !settings.denoiseHighpassEnabled}
+                onChange={(event) => updateProcessingSetting({ denoiseHighpassHz: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              <TermLabel help="Removes very high-frequency hiss above this frequency. Lowering it removes more hiss but may reduce brightness and air.">Low-pass Hz</TermLabel>
+              <label className="mini-toggle">
+                <input
+                  type="checkbox"
+                  checked={settings.denoiseLowpassEnabled}
+                  disabled={!settings.denoiseEnabled}
+                  onChange={(event) => updateProcessingSetting({ denoiseLowpassEnabled: event.target.checked })}
+                />
+                Low-pass
+              </label>
+              <input
+                type="number"
+                step="100"
+                min="1000"
+                value={settings.denoiseLowpassHz}
+                disabled={!settings.denoiseEnabled || !settings.denoiseLowpassEnabled}
+                onChange={(event) => updateProcessingSetting({ denoiseLowpassHz: Number(event.target.value) })}
+              />
             </label>
           </div>
           <div className="preset-row">
@@ -577,6 +718,22 @@ export function App() {
             <h2>Playback</h2>
           </div>
           <span className={processed ? 'panel-badge ready' : 'panel-badge'}>{processed ? 'A/B ready' : 'Waiting'}</span>
+        </div>
+        <div className="ab-switch">
+          <button
+            className={activeCompare === 'original' ? 'selected' : ''}
+            onClick={() => switchComparison('original')}
+            disabled={!selected}
+          >
+            Original
+          </button>
+          <button
+            className={activeCompare === 'processed' ? 'selected' : ''}
+            onClick={() => switchComparison('processed')}
+            disabled={!processed}
+          >
+            Processed
+          </button>
         </div>
         <div className="players">
           <AudioPlayer

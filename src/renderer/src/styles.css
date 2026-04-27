@@ -433,6 +433,23 @@ button:disabled {
   background: #ffffff;
 }
 
+.number-row input:disabled {
+  color: #8c989f;
+  background: #f2f5f5;
+}
+
+.number-row input.invalid-input {
+  border-color: #d06060;
+  background: #fff7f7;
+}
+
+.field-warning {
+  color: #9a2f2f !important;
+  font-size: 11px;
+  font-weight: 760;
+  text-transform: none;
+}
+
 .number-row input:focus,
 .preset-row select:focus {
   outline: 2px solid #a7d5dc;
@@ -510,6 +527,30 @@ button:disabled {
   background: #f2f5f5;
 }
 
+.denoise-controls {
+  margin-top: 12px;
+}
+
+.mini-toggle {
+  display: inline-flex !important;
+  grid-template-columns: none !important;
+  align-items: center;
+  gap: 6px !important;
+  min-height: 20px;
+  color: #4f5d66 !important;
+  font-size: 11px !important;
+  font-weight: 720 !important;
+  text-transform: none !important;
+}
+
+.mini-toggle input {
+  width: 14px;
+  height: 14px;
+  min-height: 0;
+  margin: 0;
+  accent-color: #248173;
+}
+
 .format-note {
   display: grid;
   gap: 6px;
@@ -536,6 +577,34 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
+}
+
+.ab-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  width: min(360px, 100%);
+  margin-bottom: 14px;
+  padding: 4px;
+  border: 1px solid #d8e0e2;
+  border-radius: 8px;
+  background: #f4f7f7;
+}
+
+.ab-switch button {
+  min-height: 38px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: #3c4852;
+  font-weight: 780;
+}
+
+.ab-switch button.selected {
+  border-color: #a7d5dc;
+  background: #ffffff;
+  color: #225c74;
+  box-shadow: 0 6px 16px rgba(42, 107, 119, 0.12);
 }
 
 .player {
